@@ -105,7 +105,7 @@ if "global_memory" not in st.session_state:
     st.session_state.global_memory = load_memory_from_db()
 
 if "theme_choice" not in st.session_state:
-    st.session_state.theme_choice = "Classic (Blue User & Purple AI)"
+    st.session_state.theme_choice = "1. Classic (Blue & Purple)"
 
 def generate_chat_title(first_prompt):
     try:
@@ -193,15 +193,24 @@ with st.sidebar:
             st.success("Global memory updated!")
 
     with tab_themes:
-        st.subheader("🎨 Full Themes")
+        st.subheader("🎨 Theme Presets")
+        theme_options = [
+            "1. Classic (Blue & Purple)",
+            "2. Cyberpunk (Neon Cyan & Pink)",
+            "3. Ocean Soft (Slate & Mint)",
+            "4. Sunset Vibes (Orange & Deep Rose)",
+            "5. Forest Night (Emerald & Lime)",
+            "6. Royal Gold (Gold & Deep Violet)",
+            "7. Crimson Dark (Red & Charcoal)",
+            "8. Lavender Dream (Lilac & Indigo)",
+            "9. Midnight OLED (True Black & Silver)",
+            "10. Matrix Green (Matrix Green & Dark Moss)"
+        ]
+        
         selected_theme = st.selectbox(
             "Choose Theme Preset:",
-            [
-                "Classic (Blue User & Purple AI)",
-                "Cyberpunk (Cyan User & Pink AI)",
-                "Ocean Soft (Slate User & Mint AI)"
-            ],
-            index=0
+            theme_options,
+            index=theme_options.index(st.session_state.theme_choice) if st.session_state.theme_choice in theme_options else 0
         )
         st.session_state.theme_choice = selected_theme
 
@@ -209,56 +218,74 @@ with st.sidebar:
         st.subheader("Preferences")
         dark_mode = st.toggle("🌙 Dark Mode", value=True)
 
-# Define Theme Colors (Backgrounds, User Color, AI Color)
-if st.session_state.theme_choice == "Classic (Blue User & Purple AI)":
-    app_bg = "#0E0F12"
-    sidebar_bg = "#1C1C1E"
-    user_color = "#007AFF"
-    ai_color = "#AF52DE"
-elif st.session_state.theme_choice == "Cyberpunk (Cyan User & Pink AI)":
-    app_bg = "#050B14"
-    sidebar_bg = "#0A1428"
-    user_color = "#00F0FF"
-    ai_color = "#FF007F"
-else:  # Ocean Soft
-    app_bg = "#0F172A"
-    sidebar_bg = "#1E293B"
-    user_color = "#38BDF8"
-    ai_color = "#34D399"
+# --- 10 THEME DEFINITIONS ---
+themes_db = {
+    "1. Classic (Blue & Purple)": {
+        "app_bg": "#0E0F12", "sidebar_bg": "#1C1C1E", "user": "#007AFF", "ai": "#AF52DE"
+    },
+    "2. Cyberpunk (Neon Cyan & Pink)": {
+        "app_bg": "#050B14", "sidebar_bg": "#0A1428", "user": "#00F0FF", "ai": "#FF007F"
+    },
+    "3. Ocean Soft (Slate & Mint)": {
+        "app_bg": "#0F172A", "sidebar_bg": "#1E293B", "user": "#38BDF8", "ai": "#34D399"
+    },
+    "4. Sunset Vibes (Orange & Deep Rose)": {
+        "app_bg": "#180B10", "sidebar_bg": "#2D121C", "user": "#FF7A00", "ai": "#E91E63"
+    },
+    "5. Forest Night (Emerald & Lime)": {
+        "app_bg": "#06140C", "sidebar_bg": "#0D2617", "user": "#10B981", "ai": "#84CC16"
+    },
+    "6. Royal Gold (Gold & Deep Violet)": {
+        "app_bg": "#120B18", "sidebar_bg": "#21142B", "user": "#F59E0B", "ai": "#8B5CF6"
+    },
+    "7. Crimson Dark (Red & Charcoal)": {
+        "app_bg": "#140505", "sidebar_bg": "#260A0A", "user": "#EF4444", "ai": "#64748B"
+    },
+    "8. Lavender Dream (Lilac & Indigo)": {
+        "app_bg": "#110E1B", "sidebar_bg": "#1F1A30", "user": "#A855F7", "ai": "#6366F1"
+    },
+    "9. Midnight OLED (True Black & Silver)": {
+        "app_bg": "#000000", "sidebar_bg": "#121212", "user": "#3B82F6", "ai": "#94A3B8"
+    },
+    "10. Matrix Green (Matrix Green & Dark Moss)": {
+        "app_bg": "#020D04", "sidebar_bg": "#061F09", "user": "#22C55E", "ai": "#14B8A6"
+    }
+}
 
-# Dynamic Styling Override for Backgrounds & Avatars
+active_theme = themes_db.get(st.session_state.theme_choice, themes_db["1. Classic (Blue & Purple)"])
+
+# Dynamic Styling Override
 if dark_mode:
     st.markdown(
         f"""
         <style>
-        /* App & Sidebar Backgrounds */
         .stApp, [data-testid="stAppViewContainer"], [data-testid="stHeader"] {{
-            background-color: {app_bg} !important;
+            background-color: {active_theme['app_bg']} !important;
             color: #F2F2F7 !important;
         }}
         [data-testid="stSidebar"], [data-testid="stSidebarContent"] {{
-            background-color: {sidebar_bg} !important;
+            background-color: {active_theme['sidebar_bg']} !important;
         }}
 
-        /* User Message & Avatar Colors */
+        /* User Message & Avatar */
         [data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarUser"]) {{
-            background-color: {user_color}22 !important;
-            border-left: 4px solid {user_color} !important;
+            background-color: {active_theme['user']}22 !important;
+            border-left: 4px solid {active_theme['user']} !important;
             border-radius: 12px !important;
         }}
         [data-testid="stChatMessageAvatarUser"] {{
-            background-color: {user_color} !important;
+            background-color: {active_theme['user']} !important;
             color: #ffffff !important;
         }}
 
-        /* AI Message & Avatar Colors */
+        /* AI Message & Avatar */
         [data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarAssistant"]) {{
-            background-color: {ai_color}22 !important;
-            border-left: 4px solid {ai_color} !important;
+            background-color: {active_theme['ai']}22 !important;
+            border-left: 4px solid {active_theme['ai']} !important;
             border-radius: 12px !important;
         }}
         [data-testid="stChatMessageAvatarAssistant"] {{
-            background-color: {ai_color} !important;
+            background-color: {active_theme['ai']} !important;
             color: #ffffff !important;
         }}
         </style>

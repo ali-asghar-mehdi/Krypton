@@ -291,13 +291,19 @@ with st.form(key="chat_form", clear_on_submit=True):
     with col_send:
         submitted = st.form_submit_button("Send ⬆️", type="primary")
 
+# Auto-focus script to jump to the text box automatically
 components.html(
     """
     <script>
-        const input = window.parent.document.querySelector('input[type="text"]');
-        if (input) {
-            input.focus();
+        function focusInput() {
+            const inputs = window.parent.document.querySelectorAll('input[type="text"]');
+            if (inputs.length > 0) {
+                const lastInput = inputs[inputs.length - 1];
+                lastInput.focus();
+            }
         }
+        focusInput();
+        setTimeout(focusInput, 300);
     </script>
     """,
     height=0,

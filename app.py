@@ -214,6 +214,19 @@ with st.sidebar:
                         st.session_state.current_chat = list(st.session_state.chats.keys())[0]
                         st.rerun()
 
+        # Rewind Section in Sidebar
+        st.divider()
+        st.caption("⏪ Rewind Chat")
+        
+        active_messages = st.session_state.chats[st.session_state.current_chat]
+        for idx, msg in enumerate(active_messages):
+            role_label = "You" if msg["role"] == "user" else "AI"
+            preview = msg["content"][:16] + "..." if len(msg["content"]) > 16 else msg["content"]
+            if st.button(f"[{role_label}] {preview}", key=f"side_rewind_{idx}", use_container_width=True):
+                st.session_state.chats[st.session_state.current_chat] = active_messages[:idx + 1]
+                save_chat_to_db(st.session_state.current_chat, st.session_state.chats[st.session_state.current_chat])
+                st.rerun()
+
     with tab_memory:
         st.caption("Instructions saved here apply to ALL chats:")
         user_memory_input = st.text_area("Persona & Rules:", value=st.session_state.global_memory, height=120)
@@ -282,6 +295,11 @@ for idx, message in enumerate(active_messages):
                         st.session_state.chats[st.session_state.current_chat].append({"role": "user", "content": new_text})
                         save_chat_to_db(st.session_state.current_chat, st.session_state.chats[st.session_state.current_chat])
                         st.rerun()
+
+                if st.button("⏪ Rewind to here", key=f"rewind_msg_{idx}"):
+                    st.session_state.chats[st.session_state.current_chat] = active_messages[:idx + 1]
+                    save_chat_to_db(st.session_state.current_chat, st.session_state.chats[st.session_state.current_chat])
+                    st.rerun()
 
                 if st.button("Delete message", key=f"del_msg_{idx}"):
                     active_messages.pop(idx)

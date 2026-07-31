@@ -9,6 +9,60 @@ from PIL import Image
 
 st.set_page_config(page_title="My AI Chatbot", layout="wide")
 
+# --- CUSTOM CSS (SF PRO FONT, BLUE & PURPLE AVATARS, CLEAN UI) ---
+st.markdown(
+    """
+    <style>
+    /* Global Font: SF Pro Display / Text */
+    html, body, [class*="css"], .stApp {
+        font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif !important;
+    }
+
+    /* Modernized Header */
+    h1 {
+        font-weight: 700 !important;
+        letter-spacing: -0.5px !important;
+        padding-bottom: 10px;
+    }
+
+    /* Custom Avatar Styling */
+    /* User Avatar - Blue */
+    [data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarUser"]) [data-testid="stChatMessageAvatarUser"] {
+        background-color: #007AFF !important;
+        color: #ffffff !important;
+        border-radius: 50% !important;
+    }
+
+    /* AI Avatar - Purple */
+    [data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarAssistant"]) [data-testid="stChatMessageAvatarAssistant"] {
+        background-color: #AF52DE !important;
+        color: #ffffff !important;
+        border-radius: 50% !important;
+    }
+
+    /* Chat Messages Styling */
+    [data-testid="stChatMessage"] {
+        border-radius: 16px !important;
+        padding: 12px 18px !important;
+        margin-bottom: 10px !important;
+    }
+
+    /* Rounded Action Buttons */
+    .stButton > button {
+        border-radius: 12px !important;
+        font-weight: 500 !important;
+        transition: all 0.2s ease;
+    }
+
+    /* Clean Sidebar Card Styling */
+    [data-testid="stSidebar"] {
+        padding-top: 20px;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
+
 # --- DATABASE SETUP (SQLite) ---
 DB_FILE = "chats.db"
 
@@ -127,12 +181,12 @@ def get_voice_audio(text):
 # --- SIDEBAR ---
 with st.sidebar:
     st.header("Settings & Theme")
-    dark_mode = st.toggle("🌙 Dark Mode", value=False)
+    dark_mode = st.toggle("🌙 Dark Mode", value=True)
     
     st.divider()
-    st.header("🧠 Global AI Memory")
-    st.caption("Instructions saved here apply to ALL chats (e.g., 'Speak in teen slang'):")
-    user_memory_input = st.text_area("Memory & Persona Rules:", value=st.session_state.global_memory, height=90)
+    st.header("🧠 Global Memory")
+    st.caption("Instructions saved here apply to ALL chats:")
+    user_memory_input = st.text_area("Persona & Rules:", value=st.session_state.global_memory, height=90)
     if st.button("Save Memory"):
         st.session_state.global_memory = user_memory_input
         save_memory_to_db(user_memory_input)
@@ -190,30 +244,17 @@ with st.sidebar:
             save_chat_to_db(st.session_state.current_chat, st.session_state.chats[st.session_state.current_chat])
             st.rerun()
 
-# --- CUSTOM STYLING ---
+# Dynamic Theme Override
 if dark_mode:
     st.markdown(
         """
         <style>
         .stApp, [data-testid="stAppViewContainer"], [data-testid="stHeader"] {
-            background-color: #000000 !important;
-            color: #ffffff !important;
+            background-color: #0E0F12 !important;
+            color: #F2F2F7 !important;
         }
         [data-testid="stSidebar"], [data-testid="stSidebarContent"] {
-            background-color: #111111 !important;
-        }
-        h1, h2, h3, p, span, label {
-            color: #ffffff !important;
-        }
-        [data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarUser"]) {
-            background-color: #002b49 !important;
-            border-radius: 12px !important;
-            padding: 12px !important;
-        }
-        [data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarAssistant"]) {
-            background-color: #4b0082 !important;
-            border-radius: 12px !important;
-            padding: 12px !important;
+            background-color: #1C1C1E !important;
         }
         </style>
         """,
@@ -275,7 +316,7 @@ with st.popover("📎 Attach File / Image"):
             file_text = uploaded_file.read().decode("utf-8")
             file_context = f"\n[Attached file content:\n{file_text}]"
 
-# --- NATIVE STREAMLIT CHAT INPUT (STAYS AUTOFOCUSED) ---
+# --- CHAT INPUT ---
 user_prompt = st.chat_input("Type your message here...")
 
 # --- HANDLE SUBMIT ---
@@ -293,7 +334,6 @@ if user_prompt:
 
     active_messages.append({"role": "user", "content": full_prompt})
     
-    # Expanded keywords to reliably catch image requests
     image_keywords = ["draw", "image", "picture", "photo", "illustration", "paint", "sketch", "render"]
     video_keywords = ["video", "clip", "movie", "animation"]
     
@@ -308,7 +348,6 @@ if user_prompt:
         image_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}"
         bot_reply = f"Here is your image!\nIMAGE_URL:{image_url}"
     else:
-        # Standard AI Text Response with Global Memory System Instruction
         system_memory_instruction = f"You are a friendly, helpful AI assistant. Always follow these persistent user rules and memory instructions: {st.session_state.global_memory}"
         api_messages = [{"role": "system", "content": system_memory_instruction}] + [
             {"role": m["role"], "content": m["content"]} for m in active_messages

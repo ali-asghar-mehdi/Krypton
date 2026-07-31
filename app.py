@@ -1,5 +1,4 @@
 import streamlit as st
-import streamlit.components.v1 as components
 from groq import Groq
 from gtts import gTTS
 import io
@@ -16,14 +15,12 @@ DB_FILE = "chats.db"
 def init_db():
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
-    # Table for chats
     c.execute("""
         CREATE TABLE IF NOT EXISTS chats (
             title TEXT PRIMARY KEY,
             messages TEXT
         )
     """)
-    # Table for global memory / instructions
     c.execute("""
         CREATE TABLE IF NOT EXISTS global_memory (
             id INTEGER PRIMARY KEY,
@@ -232,7 +229,6 @@ for idx, message in enumerate(active_messages):
     with st.chat_message(message["role"]):
         st.write(message["content"])
         
-        # Check if the message contains image or video tags to display media
         if "IMAGE_URL:" in message["content"]:
             img_url = message["content"].split("IMAGE_URL:")[1].strip()
             st.image(img_url, caption="Generated Image")
@@ -243,7 +239,8 @@ for idx, message in enumerate(active_messages):
         col1, col2 = st.columns([1, 4])
         with col1:
             if st.button("🔊 Voice", key=f"voice_{idx}"):
-                audio_data = get_voice_audio(message["content"].split("IMAGE_URL:")[0].split("VIDEO_URL:")[0])
+                clean_text = message["content"].split("IMAGE_URL:")[0].split("VIDEO_URL:")[0]
+                audio_data = get_voice_audio(clean_text)
                 st.audio(audio_data, format="audio/mp3", autoplay=True)
         with col2:
             with st.expander("⚙️ Options"):
@@ -265,52 +262,24 @@ for idx, message in enumerate(active_messages):
                     save_chat_to_db(st.session_state.current_chat, active_messages)
                     st.rerun()
 
-# --- BOTTOM INPUT AREA ---
-st.divider()
+# --- ATTACHMENT POPOVER ---
+with st.popover("📎 Attach File / Image"):
+    uploaded_file = st.file_uploader("Upload file:", type=["png", "jpg", "jpeg", "txt"])
+    file_context = ""
+    if uploaded_file is not None:
+        if uploaded_file.type.startswith("image/"):
+            image = Image.open(uploaded_file)
+            st.image(image, caption="Uploaded Image", use_container_width=True)
+            file_context = f"\n[User attached an image named {uploaded_file.name}]"
+        elif uploaded_file.type == "text/plain":
+            file_text = uploaded_file.read().decode("utf-8")
+            file_context = f"\n[Attached file content:\n{file_text}]"
 
-file_context = ""
-
-with st.form(key="chat_form", clear_on_submit=True):
-    col_attach, col_input, col_send = st.columns([1, 6, 1])
-    
-    with col_attach:
-        with st.popover("📎 Attach"):
-            uploaded_file = st.file_uploader("Upload file:", type=["png", "jpg", "jpeg", "txt"])
-            if uploaded_file is not None:
-                if uploaded_file.type.startswith("image/"):
-                    image = Image.open(uploaded_file)
-                    st.image(image, caption="Uploaded Image", use_container_width=True)
-                    file_context = f"\n[User attached an image named {uploaded_file.name}]"
-                elif uploaded_file.type == "text/plain":
-                    file_text = uploaded_file.read().decode("utf-8")
-                    file_context = f"\n[Attached file content:\n{file_text}]"
-
-    with col_input:
-        user_prompt = st.text_input("Type your message here...", label_visibility="collapsed")
-
-    with col_send:
-        submitted = st.form_submit_button("Send ⬆️", type="primary")
-
-# Auto-focus script to jump to the text box automatically
-components.html(
-    """
-    <script>
-        function focusInput() {
-            const inputs = window.parent.document.querySelectorAll('input[type="text"]');
-            if (inputs.length > 0) {
-                const lastInput = inputs[inputs.length - 1];
-                lastInput.focus();
-            }
-        }
-        focusInput();
-        setTimeout(focusInput, 300);
-    </script>
-    """,
-    height=0,
-)
+# --- NATIVE STREAMLIT CHAT INPUT (STAYS AUTOFOCUSED) ---
+user_prompt = st.chat_input("Type your message here...")
 
 # --- HANDLE SUBMIT ---
-if submitted and user_prompt:
+if user_prompt:
     full_prompt = user_prompt + file_context
     
     if len(active_messages) == 0:
@@ -324,16 +293,20 @@ if submitted and user_prompt:
 
     active_messages.append({"role": "user", "content": full_prompt})
     
-    # Check for image or video creation commands
+    # Expanded keywords to reliably catch image requests
+    image_keywords = ["draw", "image", "picture", "photo", "illustration", "paint", "sketch", "render"]
+    video_keywords = ["video", "clip", "movie", "animation"]
+    
     p_lower = user_prompt.lower()
-    if any(k in p_lower for k in ["draw", "generate image", "create image", "make an image", "picture of"]):
-        encoded_prompt = urllib.parse.quote(user_prompt)
-        image_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}"
-        bot_reply = f"Here is your image!\nIMAGE_URL:{image_url}"
-    elif any(k in p_lower for k in ["generate video", "create video", "make a video", "video of"]):
+    
+    if any(k in p_lower for k in video_keywords) and any(action in p_lower for action in ["make", "create", "generate", "show", "give"]):
         encoded_prompt = urllib.parse.quote(user_prompt)
         video_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?model=video"
         bot_reply = f"Here is your video!\nVIDEO_URL:{video_url}"
+    elif any(k in p_lower for k in image_keywords):
+        encoded_prompt = urllib.parse.quote(user_prompt)
+        image_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}"
+        bot_reply = f"Here is your image!\nIMAGE_URL:{image_url}"
     else:
         # Standard AI Text Response with Global Memory System Instruction
         system_memory_instruction = f"You are a friendly, helpful AI assistant. Always follow these persistent user rules and memory instructions: {st.session_state.global_memory}"

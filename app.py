@@ -75,3 +75,132 @@ with st.sidebar:
 
         with col_del:
             if len(st.session_state.chats) > 1:
+                if st.button("🗑️", key=f"del_{chat_name}"):
+                    del st.session_state.chats[chat_name]
+                    st.session_state.current_chat = list(st.session_state.chats.keys())[0]
+                    st.rerun()
+
+    st.divider()
+    st.header("⏪ Rewind Chat")
+    
+    active_messages = st.session_state.chats[st.session_state.current_chat]
+    for idx, msg in enumerate(active_messages):
+        role_label = "You" if msg["role"] == "user" else "AI"
+        preview = msg["content"][:18] + "..." if len(msg["content"]) > 18 else msg["content"]
+        if st.button(f"[{role_label}] {preview}", key=f"side_rewind_{idx}"):
+            st.session_state.chats[st.session_state.current_chat] = active_messages[:idx + 1]
+            st.rerun()
+
+# --- CUSTOM STYLING ---
+if dark_mode:
+    st.markdown(
+        """
+        <style>
+        .stApp, [data-testid="stAppViewContainer"], [data-testid="stHeader"] {
+            background-color: #000000 !important;
+            color: #ffffff !important;
+        }
+        [data-testid="stSidebar"], [data-testid="stSidebarContent"] {
+            background-color: #111111 !important;
+        }
+        h1, h2, h3, p, span, label {
+            color: #ffffff !important;
+        }
+        [data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarUser"]) {
+            background-color: #002b49 !important;
+            border-radius: 12px !important;
+            padding: 12px !important;
+        }
+        [data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarAssistant"]) {
+            background-color: #4b0082 !important;
+            border-radius: 12px !important;
+            padding: 12px !important;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
+
+st.title("My AI Chatbot")
+
+# --- DISPLAY MESSAGES ---
+active_messages = st.session_state.chats[st.session_state.current_chat]
+
+for idx, message in enumerate(active_messages):
+    with st.chat_message(message["role"]):
+        st.write(message["content"])
+        
+        col1, col2 = st.columns([1, 4])
+        with col1:
+            if st.button("🔊 Voice", key=f"voice_{idx}"):
+                audio_data = get_voice_audio(message["content"])
+                st.audio(audio_data, format="audio/mp3", autoplay=True)
+        with col2:
+            with st.expander("⚙️ Options"):
+                if message["role"] == "user":
+                    new_text = st.text_input("Edit message:", value=message["content"], key=f"edit_input_{idx}")
+                    if st.button("Save & Resend", key=f"save_edit_{idx}"):
+                        st.session_state.chats[st.session_state.current_chat] = active_messages[:idx]
+                        st.session_state.chats[st.session_state.current_chat].append({"role": "user", "content": new_text})
+                        st.rerun()
+                
+                if st.button("⏪ Rewind to here", key=f"rewind_msg_{idx}"):
+                    st.session_state.chats[st.session_state.current_chat] = active_messages[:idx + 1]
+                    st.rerun()
+
+                if st.button("🗑️ Delete this message", key=f"del_msg_{idx}"):
+                    active_messages.pop(idx)
+                    st.rerun()
+
+# --- BOTTOM INPUT AREA ---
+st.divider()
+
+file_context = ""
+
+with st.form(key="chat_form", clear_on_submit=True):
+    col_attach, col_input, col_send = st.columns([1, 6, 1])
+    
+    with col_attach:
+        with st.popover("📎 Attach"):
+            uploaded_file = st.file_uploader("Upload file:", type=["png", "jpg", "jpeg", "txt"])
+            if uploaded_file is not None:
+                if uploaded_file.type.startswith("image/"):
+                    image = Image.open(uploaded_file)
+                    st.image(image, caption="Uploaded Image", use_container_width=True)
+                    file_context = f"\n[User attached an image named {uploaded_file.name}]"
+                elif uploaded_file.type == "text/plain":
+                    file_text = uploaded_file.read().decode("utf-8")
+                    file_context = f"\n[Attached file content:\n{file_text}]"
+
+    with col_input:
+        user_prompt = st.text_input("Type your message here...", label_visibility="collapsed")
+
+    with col_send:
+        submitted = st.form_submit_button("Send ⬆️", type="primary")
+
+# --- HANDLE SUBMIT ---
+if submitted and user_prompt:
+    full_prompt = user_prompt + file_context
+    
+    if len(active_messages) == 0:
+        auto_title = generate_chat_title(user_prompt)
+        current_id = st.session_state.current_chat
+        
+        st.session_state.chats[auto_title] = st.session_state.chats.pop(current_id)
+        st.session_state.current_chat = auto_title
+        active_messages = st.session_state.chats[auto_title]
+
+    active_messages.append({"role": "user", "content": full_prompt})
+    
+    api_messages = [system_instruction] + [
+        {"role": m["role"], "content": m["content"]} for m in active_messages
+    ]
+
+    response = client.chat.completions.create(
+        model="llama-3.1-8b-instant",
+        messages=api_messages
+    )
+    
+    bot_reply = response.choices[0].message.content
+    active_messages.append({"role": "assistant", "content": bot_reply})
+    st.rerun()

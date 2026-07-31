@@ -104,6 +104,9 @@ if "current_chat" not in st.session_state or st.session_state.current_chat not i
 if "global_memory" not in st.session_state:
     st.session_state.global_memory = load_memory_from_db()
 
+if "theme_choice" not in st.session_state:
+    st.session_state.theme_choice = "Classic (Blue & Purple)"
+
 def generate_chat_title(first_prompt):
     try:
         response = client.chat.completions.create(
@@ -124,10 +127,10 @@ def get_voice_audio(text):
     fp.seek(0)
     return fp
 
-# --- LAYOUT IMPROVEMENT #2: SIDEBAR WITH TABS ---
+# --- SIDEBAR WITH TABS ---
 with st.sidebar:
     st.header("Control Center")
-    tab_chats, tab_memory, tab_settings = st.tabs(["💬 Chats", "🧠 Memory", "⚙️ Settings"])
+    tab_chats, tab_memory, tab_themes, tab_settings = st.tabs(["💬 Chats", "🧠 Memory", "🎨 Themes", "⚙️ Settings"])
     
     with tab_chats:
         st.subheader("Chat Sessions")
@@ -189,28 +192,56 @@ with st.sidebar:
             save_memory_to_db(user_memory_input)
             st.success("Global memory updated!")
 
+    with tab_themes:
+        st.subheader("🎨 Dark Mode Themes")
+        selected_theme = st.selectbox(
+            "Choose a Color Palette:",
+            ["Classic (Blue & Purple)", "Cyberpunk (Cyan & Pink)", "Ocean Soft (Teal & Slate)"],
+            index=0
+        )
+        st.session_state.theme_choice = selected_theme
+
     with tab_settings:
         st.subheader("Preferences")
         dark_mode = st.toggle("🌙 Dark Mode", value=True)
 
+# Define theme colors based on user selection
+if st.session_state.theme_choice == "Classic (Blue & Purple)":
+    user_bg = "#002b49"
+    ai_bg = "#4b0082"
+elif st.session_state.theme_choice == "Cyberpunk (Cyan & Pink)":
+    user_bg = "#004d40"
+    ai_bg = "#880e4f"
+else:  # Ocean Soft
+    user_bg = "#1e3d59"
+    ai_bg = "#17b978"
+
 # Dynamic Theme Override
 if dark_mode:
     st.markdown(
-        """
+        f"""
         <style>
-        .stApp, [data-testid="stAppViewContainer"], [data-testid="stHeader"] {
+        .stApp, [data-testid="stAppViewContainer"], [data-testid="stHeader"] {{
             background-color: #0E0F12 !important;
             color: #F2F2F7 !important;
-        }
-        [data-testid="stSidebar"], [data-testid="stSidebarContent"] {
+        }}
+        [data-testid="stSidebar"], [data-testid="stSidebarContent"] {{
             background-color: #1C1C1E !important;
-        }
+        }}
+        [data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarUser"]) {{
+            background-color: {user_bg} !important;
+            border-radius: 12px !important;
+        }}
+        [data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarAssistant"]) {{
+            background-color: {ai_bg} !important;
+            border-radius: 12px !important;
+        }}
         </style>
         """,
         unsafe_allow_html=True
     )
 
-# --- LAYOUT IMPROVEMENT #1: DASHBOARD HEADER ---
+# --- DASHBOARD HEADER ---
 header_col1, header_col2 = st.columns([3, 1])
 
 with header_col1:
@@ -225,7 +256,7 @@ with header_col2:
 
 st.divider()
 
-# --- LAYOUT IMPROVEMENT #3: CARD-STYLE MESSAGES ---
+# --- CARD-STYLE MESSAGES ---
 active_messages = st.session_state.chats[st.session_state.current_chat]
 
 for idx, message in enumerate(active_messages):

@@ -1,29 +1,34 @@
 import streamlit as st
-import google.generativeai as genai
+from groq import Groq
 
 st.title("My AI Chatbot")
 
-# 1. Connect your API key (stored safely in Streamlit Secrets)
-genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-model = genai.GenerativeModel('gemini-1.5-flash')
+# Connect using the Groq API key from secrets
+client = Groq(api_key=st.secrets["GROQ_API_KEY"])
 
-# 2. Keep track of memory
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-# 3. Show past messages
+# Show past messages
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.write(message["content"])
 
-# 4. Handle user typing
+# Handle user input
 if prompt := st.chat_input("Ask me anything..."):
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.write(prompt)
 
-    # 5. Get answer from real AI
+    # Get response from AI model (Llama 3)
+    response = client.chat.completions.create(
+        model="llama-3.1-8b-instant",
+        messages=[{"role": m["role"], "content": m["content"]} for m in st.session_state.messages]
+    )
+    
+    bot_reply = response.choices[0].message.content
+
     with st.chat_message("assistant"):
-        response = model.generate_content(prompt)
-        st.write(response.text)
-        st.session_state.messages.append({"role": "assistant", "content": response.text})
+        st.write(bot_reply)
+        
+    st.session_state.messages.append({"role": "assistant", "content": bot_reply})

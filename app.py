@@ -16,7 +16,7 @@ if "chats" not in st.session_state:
 if "current_chat" not in st.session_state:
     st.session_state.current_chat = "New Chat"
 
-# Helper function to generate a title automatically
+# Helper function to generate a chat title automatically
 def generate_chat_title(first_prompt):
     try:
         response = client.chat.completions.create(
@@ -129,4 +129,38 @@ for idx, message in enumerate(active_messages):
                         st.session_state.chats[st.session_state.current_chat].append({"role": "user", "content": new_text})
                         st.rerun()
                 
-                if st.button("⏪ Rewind to here", key=f"rewind_msg_{
+                if st.button("⏪ Rewind to here", key=f"rewind_msg_{idx}"):
+                    st.session_state.chats[st.session_state.current_chat] = active_messages[:idx + 1]
+                    st.rerun()
+
+                if st.button("🗑️ Delete this message", key=f"del_msg_{idx}"):
+                    active_messages.pop(idx)
+                    st.rerun()
+
+# --- HANDLE NEW USER INPUT ---
+if prompt := st.chat_input("Ask me anything..."):
+    full_prompt = prompt + file_context
+    
+    # Auto-rename current chat on first message
+    if len(active_messages) == 0:
+        auto_title = generate_chat_title(prompt)
+        current_id = st.session_state.current_chat
+        
+        st.session_state.chats[auto_title] = st.session_state.chats.pop(current_id)
+        st.session_state.current_chat = auto_title
+        active_messages = st.session_state.chats[auto_title]
+
+    active_messages.append({"role": "user", "content": full_prompt})
+    
+    api_messages = [system_instruction] + [
+        {"role": m["role"], "content": m["content"]} for m in active_messages
+    ]
+
+    response = client.chat.completions.create(
+        model="llama-3.1-8b-instant",
+        messages=api_messages
+    )
+    
+    bot_reply = response.choices[0].message.content
+    active_messages.append({"role": "assistant", "content": bot_reply})
+    st.rerun()

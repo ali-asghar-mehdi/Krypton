@@ -106,21 +106,23 @@ if "global_memory" not in st.session_state:
 if "theme_choice" not in st.session_state:
     st.session_state.theme_choice = "1. Minimal Dark (Gemini Gray)"
 
-# --- RENAME CHAT FUNCTION (NEW) ---
+# --- RENAME CHAT (SESSION + DB) ---
 def rename_chat(old_title, new_title):
     new_title = new_title.strip()
     if not new_title:
         return False
-
     if new_title in st.session_state.chats:
         return False
 
+    # move in session_state
     st.session_state.chats[new_title] = st.session_state.chats.pop(old_title)
+    # move in DB
     rename_chat_in_db(old_title, new_title)
-    st.session_state.current_chat = new_title
+    # update current chat
+    if st.session_state.current_chat == old_title:
+        st.session_state.current_chat = new_title
     return True
 
-# --- TITLE GENERATION (AI RENAME SUPPORT) ---
 def generate_chat_title(first_prompt):
     try:
         response = client.chat.completions.create(
@@ -141,7 +143,7 @@ def get_voice_audio(text):
     fp.seek(0)
     return fp
 
-# --- THEMES ---
+# --- 10 MINIMALIST THEMES ---
 themes_db = {
     "1. Minimal Dark (Gemini Gray)": {"app_bg": "#131314", "sidebar_bg": "#1E1F20", "user": "#2F2F32", "ai": "#1A73E8"},
     "2. ChatGPT Dark (Classic Charcoal)": {"app_bg": "#212121", "sidebar_bg": "#171717", "user": "#2F2F2F", "ai": "#10A37F"},
@@ -157,7 +159,7 @@ themes_db = {
 
 active_theme = themes_db.get(st.session_state.theme_choice, themes_db["1. Minimal Dark (Gemini Gray)"])
 
-# --- STYLING ---
+# Dynamic Styling (ORIGINAL)
 st.markdown(
     f"""
     <style>
@@ -168,16 +170,41 @@ st.markdown(
     [data-testid="stSidebar"], [data-testid="stSidebarContent"] {{
         background-color: {active_theme['sidebar_bg']} !important;
     }}
+
+    [data-testid="stChatMessage"] {{
+        background-color: transparent !important;
+        border: none !important;
+        padding: 8px 0px !important;
+    }}
+
+    [data-testid="stChatMessageAvatarUser"] {{
+        background-color: {active_theme['user']} !important;
+        color: #FFFFFF !important;
+    }}
+    [data-testid="stChatMessageAvatarAssistant"] {{
+        background-color: {active_theme['ai']} !important;
+        color: #FFFFFF !important;
+    }}
+
+    .stButton > button {{
+        border-radius: 8px !important;
+        border: 1px solid #333336 !important;
+        background-color: transparent !important;
+        color: #E3E3E3 !important;
+    }}
+    .stButton > button:hover {{
+        border-color: #55555A !important;
+        background-color: #2F2F32 !important;
+    }}
     </style>
     """,
     unsafe_allow_html=True
 )
 
-# --- SIDEBAR ---
+# --- SIDEBAR WITH TABS ---
 with st.sidebar:
     tab_chats, tab_memory, tab_themes = st.tabs(["💬 Chats", "🧠 Memory", "🎨 Themes"])
     
-    # --- CHAT LIST ---
     with tab_chats:
         if st.button("+ New Chat", type="primary", use_container_width=True):
             new_id = f"New Chat {len(st.session_state.chats) + 1}"
@@ -187,27 +214,29 @@ with st.sidebar:
             st.rerun()
 
         st.caption("Recent Conversations")
-
+        
         chat_names = list(st.session_state.chats.keys())
         for chat_name in chat_names:
             col_select, col_rename, col_del = st.columns([3, 2, 1])
             
-            # Select chat
             with col_select:
                 if st.button(chat_name, key=f"select_{chat_name}", use_container_width=True):
                     st.session_state.current_chat = chat_name
                     st.rerun()
 
-            # Rename chat (USER RENAME)
+            # rename UI in sidebar
             with col_rename:
-                new_name = st.text_input("", placeholder="Rename", key=f"rename_input_{chat_name}")
+                new_name = st.text_input(
+                    "",
+                    placeholder="Rename",
+                    key=f"rename_input_{chat_name}"
+                )
                 if st.button("✏️", key=f"rename_btn_{chat_name}"):
                     if rename_chat(chat_name, new_name):
                         st.rerun()
                     else:
-                        st.warning("Name already exists or invalid.")
+                        st.warning("Invalid or duplicate name.")
 
-            # Delete chat
             with col_del:
                 if len(st.session_state.chats) > 1:
                     if st.button("🗑️", key=f"del_{chat_name}"):
@@ -216,7 +245,19 @@ with st.sidebar:
                         st.session_state.current_chat = list(st.session_state.chats.keys())[0]
                         st.rerun()
 
-    # --- MEMORY TAB ---
+        # Rewind Section in Sidebar
+        st.divider()
+        st.caption("⏪ Rewind Chat")
+        
+        active_messages = st.session_state.chats[st.session_state.current_chat]
+        for idx, msg in enumerate(active_messages):
+            role_label = "You" if msg["role"] == "user" else "AI"
+            preview = msg["content"][:16] + "..." if len(msg["content"]) > 16 else msg["content"]
+            if st.button(f"[{role_label}] {preview}", key=f"side_rewind_{idx}", use_container_width=True):
+                st.session_state.chats[st.session_state.current_chat] = active_messages[:idx + 1]
+                save_chat_to_db(st.session_state.current_chat, st.session_state.chats[st.session_state.current_chat])
+                st.rerun()
+
     with tab_memory:
         st.caption("Instructions saved here apply to ALL chats:")
         user_memory_input = st.text_area("Persona & Rules:", value=st.session_state.global_memory, height=120)
@@ -225,7 +266,6 @@ with st.sidebar:
             save_memory_to_db(user_memory_input)
             st.success("Saved!")
 
-    # --- THEMES TAB ---
     with tab_themes:
         st.caption("Choose your design preset:")
         theme_options = list(themes_db.keys())
@@ -237,7 +277,7 @@ with st.sidebar:
         )
         st.session_state.theme_choice = selected_theme
 
-# --- HEADER ---
+# --- TOP HEADER ---
 header_col1, header_col2 = st.columns([4, 1])
 
 with header_col1:
@@ -249,13 +289,14 @@ with header_col2:
         save_chat_to_db(st.session_state.current_chat, [])
         st.rerun()
 
-# --- MESSAGE DISPLAY ---
+# --- MESSAGES DISPLAY ---
 active_messages = st.session_state.chats[st.session_state.current_chat]
 
 for idx, message in enumerate(active_messages):
     with st.chat_message(message["role"]):
         content = message["content"]
         
+        # Display image without raw text
         if "IMAGE_URL:" in content:
             text_part, img_url = content.split("IMAGE_URL:")
             if text_part.strip():
@@ -269,13 +310,13 @@ for idx, message in enumerate(active_messages):
         else:
             st.write(content)
 
+        # Actions
         col1, col2 = st.columns([1, 5])
         with col1:
             if st.button("🔊", key=f"voice_{idx}"):
                 clean_text = content.split("IMAGE_URL:")[0].split("VIDEO_URL:")[0]
                 audio_data = get_voice_audio(clean_text)
                 st.audio(audio_data, format="audio/mp3", autoplay=True)
-
         with col2:
             with st.expander("More", expanded=False):
                 if message["role"] == "user":
@@ -300,13 +341,12 @@ for idx, message in enumerate(active_messages):
 user_prompt = st.chat_input("Ask anything...")
 
 if user_prompt:
-    # AI RENAME SUPPORT
+    # AI can rename first empty chat using generated title
     if len(active_messages) == 0:
         auto_title = generate_chat_title(user_prompt)
         old_title = st.session_state.current_chat
         rename_chat(old_title, auto_title)
-
-        active_messages = st.session_state.chats[auto_title]
+        active_messages = st.session_state.chats[st.session_state.current_chat]
 
     active_messages.append({"role": "user", "content": user_prompt})
     

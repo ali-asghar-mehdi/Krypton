@@ -5,6 +5,7 @@ from gtts import gTTS
 import io
 import sqlite3
 import json
+import urllib.parse
 from PIL import Image
 
 st.set_page_config(page_title="My AI Chatbot", layout="wide")
@@ -15,10 +16,18 @@ DB_FILE = "chats.db"
 def init_db():
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
+    # Table for chats
     c.execute("""
         CREATE TABLE IF NOT EXISTS chats (
             title TEXT PRIMARY KEY,
             messages TEXT
+        )
+    """)
+    # Table for global memory / instructions
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS global_memory (
+            id INTEGER PRIMARY KEY,
+            instructions TEXT
         )
     """)
     conn.commit()
@@ -68,21 +77,36 @@ def rename_chat_in_db(old_title, new_title):
     conn.commit()
     conn.close()
 
-# Initialize Database on app load
+def load_memory_from_db():
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("SELECT instructions FROM global_memory WHERE id = 1")
+    row = c.fetchone()
+    conn.close()
+    return row[0] if row else ""
+
+def save_memory_to_db(memory_text):
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("INSERT OR REPLACE INTO global_memory (id, instructions) VALUES (1, ?)", (memory_text,))
+    conn.commit()
+    conn.close()
+
+# Initialize Database
 init_db()
 
 # Connect to Groq API
 client = Groq(api_key=st.secrets["GROQ_API_KEY"])
-system_instruction = {"role": "system", "content": "You are a friendly, helpful AI assistant."}
 
-# Load saved chats from database
 if "chats" not in st.session_state:
     st.session_state.chats = load_chats_from_db()
 
 if "current_chat" not in st.session_state or st.session_state.current_chat not in st.session_state.chats:
     st.session_state.current_chat = list(st.session_state.chats.keys())[0]
 
-# Helper function to generate a chat title automatically
+if "global_memory" not in st.session_state:
+    st.session_state.global_memory = load_memory_from_db()
+
 def generate_chat_title(first_prompt):
     try:
         response = client.chat.completions.create(
@@ -96,7 +120,6 @@ def generate_chat_title(first_prompt):
     except Exception:
         return f"Chat {len(st.session_state.chats)}"
 
-# Helper function for audio with an American accent
 def get_voice_audio(text):
     tts = gTTS(text=text, lang='en', tld='com')
     fp = io.BytesIO()
@@ -104,11 +127,20 @@ def get_voice_audio(text):
     fp.seek(0)
     return fp
 
-# --- SIDEBAR: Theme, Chat Sessions, & Rewind ---
+# --- SIDEBAR ---
 with st.sidebar:
     st.header("Settings & Theme")
     dark_mode = st.toggle("🌙 Dark Mode", value=False)
     
+    st.divider()
+    st.header("🧠 Global AI Memory")
+    st.caption("Instructions saved here apply to ALL chats (e.g., 'Speak in teen slang'):")
+    user_memory_input = st.text_area("Memory & Persona Rules:", value=st.session_state.global_memory, height=90)
+    if st.button("Save Memory"):
+        st.session_state.global_memory = user_memory_input
+        save_memory_to_db(user_memory_input)
+        st.success("Global memory updated!")
+
     st.divider()
     st.header("Chat Sessions")
     
@@ -200,10 +232,18 @@ for idx, message in enumerate(active_messages):
     with st.chat_message(message["role"]):
         st.write(message["content"])
         
+        # Check if the message contains image or video tags to display media
+        if "IMAGE_URL:" in message["content"]:
+            img_url = message["content"].split("IMAGE_URL:")[1].strip()
+            st.image(img_url, caption="Generated Image")
+        elif "VIDEO_URL:" in message["content"]:
+            vid_url = message["content"].split("VIDEO_URL:")[1].strip()
+            st.video(vid_url)
+
         col1, col2 = st.columns([1, 4])
         with col1:
             if st.button("🔊 Voice", key=f"voice_{idx}"):
-                audio_data = get_voice_audio(message["content"])
+                audio_data = get_voice_audio(message["content"].split("IMAGE_URL:")[0].split("VIDEO_URL:")[0])
                 st.audio(audio_data, format="audio/mp3", autoplay=True)
         with col2:
             with st.expander("⚙️ Options"):
@@ -251,7 +291,6 @@ with st.form(key="chat_form", clear_on_submit=True):
     with col_send:
         submitted = st.form_submit_button("Send ⬆️", type="primary")
 
-# Auto-focus script to jump to the input box automatically
 components.html(
     """
     <script>
@@ -279,18 +318,29 @@ if submitted and user_prompt:
 
     active_messages.append({"role": "user", "content": full_prompt})
     
-    api_messages = [system_instruction] + [
-        {"role": m["role"], "content": m["content"]} for m in active_messages
-    ]
+    # Check for image or video creation commands
+    p_lower = user_prompt.lower()
+    if any(k in p_lower for k in ["draw", "generate image", "create image", "make an image", "picture of"]):
+        encoded_prompt = urllib.parse.quote(user_prompt)
+        image_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}"
+        bot_reply = f"Here is your image!\nIMAGE_URL:{image_url}"
+    elif any(k in p_lower for k in ["generate video", "create video", "make a video", "video of"]):
+        encoded_prompt = urllib.parse.quote(user_prompt)
+        video_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?model=video"
+        bot_reply = f"Here is your video!\nVIDEO_URL:{video_url}"
+    else:
+        # Standard AI Text Response with Global Memory System Instruction
+        system_memory_instruction = f"You are a friendly, helpful AI assistant. Always follow these persistent user rules and memory instructions: {st.session_state.global_memory}"
+        api_messages = [{"role": "system", "content": system_memory_instruction}] + [
+            {"role": m["role"], "content": m["content"]} for m in active_messages
+        ]
 
-    response = client.chat.completions.create(
-        model="llama-3.1-8b-instant",
-        messages=api_messages
-    )
-    
-    bot_reply = response.choices[0].message.content
+        response = client.chat.completions.create(
+            model="llama-3.1-8b-instant",
+            messages=api_messages
+        )
+        bot_reply = response.choices[0].message.content
+
     active_messages.append({"role": "assistant", "content": bot_reply})
-    
-    # Save updated chat to database
     save_chat_to_db(st.session_state.current_chat, active_messages)
     st.rerun()

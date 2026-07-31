@@ -51,31 +51,26 @@ with st.sidebar:
                     st.session_state.current_chat = list(st.session_state.chats.keys())[0]
                     st.rerun()
 
-# --- FIXED DARK MODE STYLING ---
+# --- CUSTOM DARK MODE STYLING ---
 if dark_mode:
     st.markdown(
         """
         <style>
-        /* Whole App Background */
         .stApp, [data-testid="stAppViewContainer"], [data-testid="stHeader"] {
             background-color: #000000 !important;
             color: #ffffff !important;
         }
-        /* Sidebar Background */
         [data-testid="stSidebar"], [data-testid="stSidebarContent"] {
             background-color: #111111 !important;
         }
-        /* All Text Color */
         h1, h2, h3, p, span, label {
             color: #ffffff !important;
         }
-        /* User Chat Message Container (Dark Blue) */
         [data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarUser"]) {
             background-color: #002b49 !important;
             border-radius: 12px !important;
             padding: 12px !important;
         }
-        /* AI Chat Message Container (Purple) */
         [data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarAssistant"]) {
             background-color: #4b0082 !important;
             border-radius: 12px !important;
@@ -89,4 +84,54 @@ if dark_mode:
 st.title("My AI Chatbot")
 
 # --- FILE ATTACHMENT SECTION ---
-uploaded_file = st.file_uploader("Attach a file (Image, TXT):", type=
+uploaded_file = st.file_uploader("Attach a file (Image, TXT):", type=["png", "jpg", "jpeg", "txt"])
+file_context = ""
+
+if uploaded_file is not None:
+    if uploaded_file.type.startswith("image/"):
+        image = Image.open(uploaded_file)
+        st.image(image, caption="Uploaded Image", use_container_width=True)
+        file_context = f"\n[User attached an image named {uploaded_file.name}]"
+    elif uploaded_file.type == "text/plain":
+        file_text = uploaded_file.read().decode("utf-8")
+        file_context = f"\n[Attached file content:\n{file_text}]"
+
+# Connect to Groq API
+client = Groq(api_key=st.secrets["GROQ_API_KEY"])
+system_instruction = {"role": "system", "content": "You are a friendly, helpful AI assistant."}
+
+active_messages = st.session_state.chats[st.session_state.current_chat]
+
+# --- DISPLAY MESSAGES ---
+for idx, message in enumerate(active_messages):
+    with st.chat_message(message["role"]):
+        st.write(message["content"])
+        
+        col1, col2 = st.columns([1, 4])
+        with col1:
+            if st.button("🔊 Voice", key=f"voice_{idx}"):
+                audio_data = get_voice_audio(message["content"])
+                st.audio(audio_data, format="audio/mp3", autoplay=True)
+        with col2:
+            with st.expander("⚙️ Options"):
+                if st.button("Delete message", key=f"del_msg_{idx}"):
+                    active_messages.pop(idx)
+                    st.rerun()
+
+# --- HANDLE INPUT ---
+if prompt := st.chat_input("Ask me anything..."):
+    full_prompt = prompt + file_context
+    active_messages.append({"role": "user", "content": full_prompt})
+    
+    api_messages = [system_instruction] + [
+        {"role": m["role"], "content": m["content"]} for m in active_messages
+    ]
+
+    response = client.chat.completions.create(
+        model="llama-3.1-8b-instant",
+        messages=api_messages
+    )
+    
+    bot_reply = response.choices[0].message.content
+    active_messages.append({"role": "assistant", "content": bot_reply})
+    st.rerun()

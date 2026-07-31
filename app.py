@@ -10,9 +10,9 @@ st.title("My AI Chatbot")
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-# Helper function to convert text to voice audio
+# Helper function to convert text to voice audio (US English accent)
 def get_voice_audio(text):
-    tts = gTTS(text=text, lang='en', tld='co.uk')
+    tts = gTTS(text=text, lang='en', tld='com')
     fp = io.BytesIO()
     tts.write_to_fp(fp)
     fp.seek(0)
@@ -37,8 +37,14 @@ with st.sidebar:
             st.session_state.messages = st.session_state.messages[:idx+1]
             st.rerun()
 
-# Connect to Groq API key
+# Connect to Groq API
 client = Groq(api_key=st.secrets["GROQ_API_KEY"])
+
+# System prompt to give the AI a casual tone with slang
+system_instruction = {
+    "role": "system",
+    "content": "You are a friendly, super casual AI assistant. Use informal slang and a warm tone in every response, like talking to a friend!"
+}
 
 # --- DISPLAY CHAT MESSAGES ---
 for idx, message in enumerate(st.session_state.messages):
@@ -57,6 +63,24 @@ for idx, message in enumerate(st.session_state.messages):
             # Options menu under each message
             with st.expander("⚙️ Options"):
                 if message["role"] == "user":
+                    # Button to immediately re-generate a new AI response for this user message
+                    if st.button("🔄 Re-generate Response", key=f"regen_{idx}"):
+                        st.session_state.messages = st.session_state.messages[:idx+1]
+                        
+                        # Prepare messages with system prompt
+                        api_messages = [system_instruction] + [
+                            {"role": m["role"], "content": m["content"]} for m in st.session_state.messages
+                        ]
+                        
+                        response = client.chat.completions.create(
+                            model="llama-3.1-8b-instant",
+                            messages=api_messages
+                        )
+                        
+                        bot_reply = response.choices[0].message.content
+                        st.session_state.messages.append({"role": "assistant", "content": bot_reply})
+                        st.rerun()
+
                     new_text = st.text_input("Edit message:", value=message["content"], key=f"edit_{idx}")
                     if st.button("Save & Resend", key=f"save_{idx}"):
                         st.session_state.messages = st.session_state.messages[:idx]
@@ -71,10 +95,15 @@ for idx, message in enumerate(st.session_state.messages):
 if prompt := st.chat_input("Ask me anything..."):
     st.session_state.messages.append({"role": "user", "content": prompt})
     
+    # Prepare messages with system prompt
+    api_messages = [system_instruction] + [
+        {"role": m["role"], "content": m["content"]} for m in st.session_state.messages
+    ]
+
     # Get response from AI model
     response = client.chat.completions.create(
         model="llama-3.1-8b-instant",
-        messages=[{"role": m["role"], "content": m["content"]} for m in st.session_state.messages]
+        messages=api_messages
     )
     
     bot_reply = response.choices[0].message.content

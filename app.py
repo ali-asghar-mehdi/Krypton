@@ -105,7 +105,7 @@ if "global_memory" not in st.session_state:
     st.session_state.global_memory = load_memory_from_db()
 
 if "theme_choice" not in st.session_state:
-    st.session_state.theme_choice = "Classic (Blue & Purple)"
+    st.session_state.theme_choice = "Classic (Blue User & Purple AI)"
 
 def generate_chat_title(first_prompt):
     try:
@@ -163,13 +163,13 @@ with st.sidebar:
                                 st.session_state.current_chat = new_name
                             st.rerun()
 
-            with col_del:
-                if len(st.session_state.chats) > 1:
-                    if st.button("🗑️", key=f"del_{chat_name}"):
-                        del st.session_state.chats[chat_name]
-                        delete_chat_from_db(chat_name)
-                        st.session_state.current_chat = list(st.session_state.chats.keys())[0]
-                        st.rerun()
+        with col_del:
+            if len(st.session_state.chats) > 1:
+                if st.button("🗑️", key=f"del_{chat_name}"):
+                    del st.session_state.chats[chat_name]
+                    delete_chat_from_db(chat_name)
+                    st.session_state.current_chat = list(st.session_state.chats.keys())[0]
+                    st.rerun()
 
         st.divider()
         st.subheader("⏪ Rewind Chat")
@@ -193,10 +193,14 @@ with st.sidebar:
             st.success("Global memory updated!")
 
     with tab_themes:
-        st.subheader("🎨 Dark Mode Themes")
+        st.subheader("🎨 Full Themes")
         selected_theme = st.selectbox(
-            "Choose a Color Palette:",
-            ["Classic (Blue & Purple)", "Cyberpunk (Cyan & Pink)", "Ocean Soft (Teal & Slate)"],
+            "Choose Theme Preset:",
+            [
+                "Classic (Blue User & Purple AI)",
+                "Cyberpunk (Cyan User & Pink AI)",
+                "Ocean Soft (Slate User & Mint AI)"
+            ],
             index=0
         )
         st.session_state.theme_choice = selected_theme
@@ -205,36 +209,57 @@ with st.sidebar:
         st.subheader("Preferences")
         dark_mode = st.toggle("🌙 Dark Mode", value=True)
 
-# Define theme colors based on user selection
-if st.session_state.theme_choice == "Classic (Blue & Purple)":
-    user_bg = "#002b49"
-    ai_bg = "#4b0082"
-elif st.session_state.theme_choice == "Cyberpunk (Cyan & Pink)":
-    user_bg = "#004d40"
-    ai_bg = "#880e4f"
+# Define Theme Colors (Backgrounds, User Color, AI Color)
+if st.session_state.theme_choice == "Classic (Blue User & Purple AI)":
+    app_bg = "#0E0F12"
+    sidebar_bg = "#1C1C1E"
+    user_color = "#007AFF"
+    ai_color = "#AF52DE"
+elif st.session_state.theme_choice == "Cyberpunk (Cyan User & Pink AI)":
+    app_bg = "#050B14"
+    sidebar_bg = "#0A1428"
+    user_color = "#00F0FF"
+    ai_color = "#FF007F"
 else:  # Ocean Soft
-    user_bg = "#1e3d59"
-    ai_bg = "#17b978"
+    app_bg = "#0F172A"
+    sidebar_bg = "#1E293B"
+    user_color = "#38BDF8"
+    ai_color = "#34D399"
 
-# Dynamic Theme Override
+# Dynamic Styling Override for Backgrounds & Avatars
 if dark_mode:
     st.markdown(
         f"""
         <style>
+        /* App & Sidebar Backgrounds */
         .stApp, [data-testid="stAppViewContainer"], [data-testid="stHeader"] {{
-            background-color: #0E0F12 !important;
+            background-color: {app_bg} !important;
             color: #F2F2F7 !important;
         }}
         [data-testid="stSidebar"], [data-testid="stSidebarContent"] {{
-            background-color: #1C1C1E !important;
+            background-color: {sidebar_bg} !important;
         }}
+
+        /* User Message & Avatar Colors */
         [data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarUser"]) {{
-            background-color: {user_bg} !important;
+            background-color: {user_color}22 !important;
+            border-left: 4px solid {user_color} !important;
             border-radius: 12px !important;
         }}
+        [data-testid="stChatMessageAvatarUser"] {{
+            background-color: {user_color} !important;
+            color: #ffffff !important;
+        }}
+
+        /* AI Message & Avatar Colors */
         [data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarAssistant"]) {{
-            background-color: {ai_bg} !important;
+            background-color: {ai_color}22 !important;
+            border-left: 4px solid {ai_color} !important;
             border-radius: 12px !important;
+        }}
+        [data-testid="stChatMessageAvatarAssistant"] {{
+            background-color: {ai_color} !important;
+            color: #ffffff !important;
         }}
         </style>
         """,
@@ -256,7 +281,7 @@ with header_col2:
 
 st.divider()
 
-# --- CARD-STYLE MESSAGES ---
+# --- MESSAGES DISPLAY ---
 active_messages = st.session_state.chats[st.session_state.current_chat]
 
 for idx, message in enumerate(active_messages):

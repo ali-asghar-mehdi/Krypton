@@ -2,3 +2,4 @@ streamlit
 groq
 gtts
 pillow
+requests

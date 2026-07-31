@@ -9,25 +9,23 @@ from PIL import Image
 
 st.set_page_config(page_title="My AI Chatbot", layout="wide")
 
-# --- CUSTOM CSS (SF PRO & APPLE SYSTEM FONTS FIX) ---
+# --- CUSTOM CSS (SF PRO FONT, BLUE & PURPLE AVATARS, CLEAN UI) ---
 st.markdown(
     """
     <style>
-    /* Import Inter font (looks almost identical to SF Pro) */
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
-
-    /* Force font across all Streamlit elements */
-    html, body, [class*="css"], .stApp, div, span, label, p, h1, h2, h3, button, input {
-        font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Inter", "Helvetica Neue", sans-serif !important;
+    /* Global Font: SF Pro Display / Text */
+    html, body, [class*="css"], .stApp {
+        font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif !important;
     }
 
-    /* Header */
+    /* Modernized Header */
     h1 {
         font-weight: 700 !important;
         letter-spacing: -0.5px !important;
         padding-bottom: 10px;
     }
 
+    /* Custom Avatar Styling */
     /* User Avatar - Blue */
     [data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarUser"]) [data-testid="stChatMessageAvatarUser"] {
         background-color: #007AFF !important;
@@ -53,6 +51,12 @@ st.markdown(
     .stButton > button {
         border-radius: 12px !important;
         font-weight: 500 !important;
+        transition: all 0.2s ease;
+    }
+
+    /* Clean Sidebar Card Styling */
+    [data-testid="stSidebar"] {
+        padding-top: 20px;
     }
     </style>
     """,

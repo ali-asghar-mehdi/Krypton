@@ -1,4 +1,5 @@
 import streamlit as st
+import streamlit.components.v1 as components
 from groq import Groq
 from gtts import gTTS
 import io
@@ -30,8 +31,9 @@ def generate_chat_title(first_prompt):
     except Exception:
         return f"Chat {len(st.session_state.chats)}"
 
-# Helper function for audio
+# Helper function for audio with an American accent
 def get_voice_audio(text):
+    # 'en' language with 'com' top-level domain produces a US English accent
     tts = gTTS(text=text, lang='en', tld='com')
     fp = io.BytesIO()
     tts.write_to_fp(fp)
@@ -177,6 +179,19 @@ with st.form(key="chat_form", clear_on_submit=True):
 
     with col_send:
         submitted = st.form_submit_button("Send ⬆️", type="primary")
+
+# Auto-focus script to jump to the input box automatically
+components.html(
+    """
+    <script>
+        const input = window.parent.document.querySelector('input[type="text"]');
+        if (input) {
+            input.focus();
+        }
+    </script>
+    """,
+    height=0,
+)
 
 # --- HANDLE SUBMIT ---
 if submitted and user_prompt:

@@ -1,31 +1,29 @@
 import streamlit as st
+import google.generativeai as genai
 
 st.title("My AI Chatbot")
 
-# 1. Initialize chat history in session memory
+# 1. Connect your API key (stored safely in Streamlit Secrets)
+genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+model = genai.GenerativeModel('gemini-1.5-flash')
+
+# 2. Keep track of memory
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-# 2. Display previous messages from memory
+# 3. Show past messages
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.write(message["content"])
 
-# 3. Get new user input
-if user_prompt := st.chat_input("Type your message here..."):
-    # Display user's message in the app
+# 4. Handle user typing
+if prompt := st.chat_input("Ask me anything..."):
+    st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
-        st.write(user_prompt)
-    
-    # Save user's message to memory
-    st.session_state.messages.append({"role": "user", "content": user_prompt})
+        st.write(prompt)
 
-    # Generate bot response (Replace this text with an actual AI model!)
-    bot_response = f"You said: {user_prompt}"
-
-    # Display bot's message in the app
+    # 5. Get answer from real AI
     with st.chat_message("assistant"):
-        st.write(bot_response)
-
-    # Save bot's message to memory
-    st.session_state.messages.append({"role": "assistant", "content": bot_response})
+        response = model.generate_content(prompt)
+        st.write(response.text)
+        st.session_state.messages.append({"role": "assistant", "content": response.text})

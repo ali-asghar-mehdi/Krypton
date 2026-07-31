@@ -102,6 +102,9 @@ if "current_chat" not in st.session_state or st.session_state.current_chat not i
 if "global_memory" not in st.session_state:
     st.session_state.global_memory = load_memory_from_db()
 
+if "theme_choice" not in st.session_state:
+    st.session_state.theme_choice = "1. Minimal Dark (Gemini Gray)"
+
 def generate_chat_title(first_prompt):
     try:
         response = client.chat.completions.create(
@@ -122,55 +125,67 @@ def get_voice_audio(text):
     fp.seek(0)
     return fp
 
-# --- MINIMALIST STYLING ---
-st.markdown(
-    """
-    <style>
-    /* Clean dark background */
-    .stApp, [data-testid="stAppViewContainer"], [data-testid="stHeader"] {
-        background-color: #131314 !important;
-        color: #E3E3E3 !important;
-    }
-    [data-testid="stSidebar"], [data-testid="stSidebarContent"] {
-        background-color: #1E1F20 !important;
-    }
+# --- 10 MINIMALIST THEMES ---
+themes_db = {
+    "1. Minimal Dark (Gemini Gray)": {"app_bg": "#131314", "sidebar_bg": "#1E1F20", "user": "#2F2F32", "ai": "#1A73E8"},
+    "2. ChatGPT Dark (Classic Charcoal)": {"app_bg": "#212121", "sidebar_bg": "#171717", "user": "#2F2F2F", "ai": "#10A37F"},
+    "3. Cyberpunk (Neon Blue & Pink)": {"app_bg": "#050B14", "sidebar_bg": "#0A1428", "user": "#00F0FF", "ai": "#FF007F"},
+    "4. Ocean Slate (Deep Aqua)": {"app_bg": "#0F172A", "sidebar_bg": "#1E293B", "user": "#38BDF8", "ai": "#34D399"},
+    "5. Sunset Glow (Orange Accent)": {"app_bg": "#180B10", "sidebar_bg": "#2D121C", "user": "#FF7A00", "ai": "#E91E63"},
+    "6. Forest Night (Emerald)": {"app_bg": "#06140C", "sidebar_bg": "#0D2617", "user": "#10B981", "ai": "#84CC16"},
+    "7. Royal Violet (Purple Minimal)": {"app_bg": "#120B18", "sidebar_bg": "#21142B", "user": "#F59E0B", "ai": "#8B5CF6"},
+    "8. Crimson Dark (Charcoal & Red)": {"app_bg": "#140505", "sidebar_bg": "#260A0A", "user": "#EF4444", "ai": "#64748B"},
+    "9. Lavender Glow (Soft Lilac)": {"app_bg": "#110E1B", "sidebar_bg": "#1F1A30", "user": "#A855F7", "ai": "#6366F1"},
+    "10. OLED Pitch Black": {"app_bg": "#000000", "sidebar_bg": "#121212", "user": "#262626", "ai": "#3B82F6"}
+}
 
-    /* Remove container boxes for natural chat flow */
-    [data-testid="stChatMessage"] {
+active_theme = themes_db.get(st.session_state.theme_choice, themes_db["1. Minimal Dark (Gemini Gray)"])
+
+# Dynamic Styling
+st.markdown(
+    f"""
+    <style>
+    .stApp, [data-testid="stAppViewContainer"], [data-testid="stHeader"] {{
+        background-color: {active_theme['app_bg']} !important;
+        color: #E3E3E3 !important;
+    }}
+    [data-testid="stSidebar"], [data-testid="stSidebarContent"] {{
+        background-color: {active_theme['sidebar_bg']} !important;
+    }}
+
+    [data-testid="stChatMessage"] {{
         background-color: transparent !important;
         border: none !important;
         padding: 8px 0px !important;
-    }
+    }}
 
-    /* Modern subtle avatars */
-    [data-testid="stChatMessageAvatarUser"] {
-        background-color: #2F2F32 !important;
+    [data-testid="stChatMessageAvatarUser"] {{
+        background-color: {active_theme['user']} !important;
         color: #FFFFFF !important;
-    }
-    [data-testid="stChatMessageAvatarAssistant"] {
-        background-color: #1A73E8 !important;
+    }}
+    [data-testid="stChatMessageAvatarAssistant"] {{
+        background-color: {active_theme['ai']} !important;
         color: #FFFFFF !important;
-    }
+    }}
 
-    /* Minimal buttons */
-    .stButton > button {
+    .stButton > button {{
         border-radius: 8px !important;
         border: 1px solid #333336 !important;
         background-color: transparent !important;
         color: #E3E3E3 !important;
-    }
-    .stButton > button:hover {
+    }}
+    .stButton > button:hover {{
         border-color: #55555A !important;
         background-color: #2F2F32 !important;
-    }
+    }}
     </style>
     """,
     unsafe_allow_html=True
 )
 
-# --- SIDEBAR ---
+# --- SIDEBAR WITH TABS ---
 with st.sidebar:
-    tab_chats, tab_memory = st.tabs(["💬 Chats", "🧠 Memory"])
+    tab_chats, tab_memory, tab_themes = st.tabs(["💬 Chats", "🧠 Memory", "🎨 Themes"])
     
     with tab_chats:
         if st.button("+ New Chat", type="primary", use_container_width=True):
@@ -207,6 +222,17 @@ with st.sidebar:
             save_memory_to_db(user_memory_input)
             st.success("Saved!")
 
+    with tab_themes:
+        st.caption("Choose your design preset:")
+        theme_options = list(themes_db.keys())
+        
+        selected_theme = st.selectbox(
+            "Theme Presets:",
+            theme_options,
+            index=theme_options.index(st.session_state.theme_choice) if st.session_state.theme_choice in theme_options else 0
+        )
+        st.session_state.theme_choice = selected_theme
+
 # --- TOP HEADER ---
 header_col1, header_col2 = st.columns([4, 1])
 
@@ -226,7 +252,7 @@ for idx, message in enumerate(active_messages):
     with st.chat_message(message["role"]):
         content = message["content"]
         
-        # Display image clean without raw URL text showing
+        # Display image without raw text
         if "IMAGE_URL:" in content:
             text_part, img_url = content.split("IMAGE_URL:")
             if text_part.strip():
@@ -240,7 +266,7 @@ for idx, message in enumerate(active_messages):
         else:
             st.write(content)
 
-        # Minimal actions bar
+        # Actions
         col1, col2 = st.columns([1, 5])
         with col1:
             if st.button("🔊", key=f"voice_{idx}"):

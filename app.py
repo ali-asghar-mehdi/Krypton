@@ -20,7 +20,9 @@ def get_voice_audio(text):
     fp.seek(0)
     return fp
 
-# --- SIDEBAR: Chat Sessions & Renaming ---
+active_messages = st.session_state.chats[st.session_state.current_chat]
+
+# --- SIDEBAR: Chat Sessions, Renaming, & Rewind ---
 with st.sidebar:
     st.header("Chat Sessions")
     
@@ -63,6 +65,18 @@ with st.sidebar:
                     st.session_state.current_chat = list(st.session_state.chats.keys())[0]
                     st.rerun()
 
+    st.divider()
+    st.header("⏪ Rewind Chat")
+    st.caption("Click to go back to any message:")
+    
+    # Sidebar Rewind buttons for current chat
+    for idx, msg in enumerate(active_messages):
+        role_label = "You" if msg["role"] == "user" else "AI"
+        preview = msg["content"][:18] + "..." if len(msg["content"]) > 18 else msg["content"]
+        if st.button(f"[{role_label}] {preview}", key=f"side_rewind_{idx}"):
+            st.session_state.chats[st.session_state.current_chat] = active_messages[:idx + 1]
+            st.rerun()
+
 st.title("My AI Chatbot")
 
 # --- FILE ATTACHMENT SECTION ---
@@ -82,9 +96,7 @@ if uploaded_file is not None:
 client = Groq(api_key=st.secrets["GROQ_API_KEY"])
 system_instruction = {"role": "system", "content": "You are a friendly, helpful AI assistant."}
 
-active_messages = st.session_state.chats[st.session_state.current_chat]
-
-# --- DISPLAY MESSAGES ---
+# --- DISPLAY MESSAGES & IN-LINE REWIND OPTIONS ---
 for idx, message in enumerate(active_messages):
     with st.chat_message(message["role"]):
         st.write(message["content"])
@@ -96,11 +108,25 @@ for idx, message in enumerate(active_messages):
                 st.audio(audio_data, format="audio/mp3", autoplay=True)
         with col2:
             with st.expander("⚙️ Options"):
-                if st.button("Delete message", key=f"del_msg_{idx}"):
+                # Edit and resend option for user messages
+                if message["role"] == "user":
+                    new_text = st.text_input("Edit message:", value=message["content"], key=f"edit_input_{idx}")
+                    if st.button("Save & Resend", key=f"save_edit_{idx}"):
+                        # Truncate to before this message, then add new edited prompt
+                        st.session_state.chats[st.session_state.current_chat] = active_messages[:idx]
+                        st.session_state.chats[st.session_state.current_chat].append({"role": "user", "content": new_text})
+                        st.rerun()
+                
+                # Rewind button for any message
+                if st.button("⏪ Rewind to here (delete newer messages)", key=f"rewind_msg_{idx}"):
+                    st.session_state.chats[st.session_state.current_chat] = active_messages[:idx + 1]
+                    st.rerun()
+
+                if st.button("🗑️ Delete this message", key=f"del_msg_{idx}"):
                     active_messages.pop(idx)
                     st.rerun()
 
-# --- HANDLE INPUT ---
+# --- HANDLE NEW USER INPUT ---
 if prompt := st.chat_input("Ask me anything..."):
     full_prompt = prompt + file_context
     active_messages.append({"role": "user", "content": full_prompt})

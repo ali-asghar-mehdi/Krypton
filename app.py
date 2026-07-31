@@ -163,7 +163,7 @@ themes_db = {
 
 active_theme = themes_db[st.session_state.theme_choice]
 
-# --- ORIGINAL CSS (UNCHANGED) ---
+# --- ORIGINAL CSS ---
 st.markdown(
     f"""
     <style>
@@ -373,7 +373,11 @@ if user_prompt:
         bot_reply = f"IMAGE_URL:{image_url}"
 
     else:
-        system_memory_instruction = f"You are a helpful AI assistant. Follow these rules: {st.session_state.global_memory}"
+        system_memory_instruction = (
+            "You are Krypton, a helpful AI assistant. "
+            f"Follow these rules: {st.session_state.global_memory}"
+        )
+
         api_messages = [{"role": "system", "content": system_memory_instruction}] + [
             {"role": m["role"], "content": m["content"]} for m in active_messages
         ]

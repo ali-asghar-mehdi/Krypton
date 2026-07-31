@@ -9,60 +9,6 @@ from PIL import Image
 
 st.set_page_config(page_title="My AI Chatbot", layout="wide")
 
-# --- CUSTOM CSS (SF PRO FONT, BLUE & PURPLE AVATARS, CLEAN UI) ---
-st.markdown(
-    """
-    <style>
-    /* Global Font: SF Pro Display / Text */
-    html, body, [class*="css"], .stApp {
-        font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif !important;
-    }
-
-    /* Modernized Header */
-    h1 {
-        font-weight: 700 !important;
-        letter-spacing: -0.5px !important;
-        padding-bottom: 10px;
-    }
-
-    /* Custom Avatar Styling */
-    /* User Avatar - Blue */
-    [data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarUser"]) [data-testid="stChatMessageAvatarUser"] {
-        background-color: #007AFF !important;
-        color: #ffffff !important;
-        border-radius: 50% !important;
-    }
-
-    /* AI Avatar - Purple */
-    [data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarAssistant"]) [data-testid="stChatMessageAvatarAssistant"] {
-        background-color: #AF52DE !important;
-        color: #ffffff !important;
-        border-radius: 50% !important;
-    }
-
-    /* Chat Messages Styling */
-    [data-testid="stChatMessage"] {
-        border-radius: 16px !important;
-        padding: 12px 18px !important;
-        margin-bottom: 10px !important;
-    }
-
-    /* Rounded Action Buttons */
-    .stButton > button {
-        border-radius: 12px !important;
-        font-weight: 500 !important;
-        transition: all 0.2s ease;
-    }
-
-    /* Clean Sidebar Card Styling */
-    [data-testid="stSidebar"] {
-        padding-top: 20px;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True
-)
-
 # --- DATABASE SETUP (SQLite) ---
 DB_FILE = "chats.db"
 
@@ -178,71 +124,74 @@ def get_voice_audio(text):
     fp.seek(0)
     return fp
 
-# --- SIDEBAR ---
+# --- LAYOUT IMPROVEMENT #2: SIDEBAR WITH TABS ---
 with st.sidebar:
-    st.header("Settings & Theme")
-    dark_mode = st.toggle("🌙 Dark Mode", value=True)
+    st.header("Control Center")
+    tab_chats, tab_memory, tab_settings = st.tabs(["💬 Chats", "🧠 Memory", "⚙️ Settings"])
     
-    st.divider()
-    st.header("🧠 Global Memory")
-    st.caption("Instructions saved here apply to ALL chats:")
-    user_memory_input = st.text_area("Persona & Rules:", value=st.session_state.global_memory, height=90)
-    if st.button("Save Memory"):
-        st.session_state.global_memory = user_memory_input
-        save_memory_to_db(user_memory_input)
-        st.success("Global memory updated!")
+    with tab_chats:
+        st.subheader("Chat Sessions")
+        if st.button("+ New Chat", type="primary", use_container_width=True):
+            new_id = f"New Chat {len(st.session_state.chats) + 1}"
+            st.session_state.chats[new_id] = []
+            st.session_state.current_chat = new_id
+            save_chat_to_db(new_id, [])
+            st.rerun()
 
-    st.divider()
-    st.header("Chat Sessions")
-    
-    if st.button("+ New Chat", type="primary"):
-        new_id = f"New Chat {len(st.session_state.chats) + 1}"
-        st.session_state.chats[new_id] = []
-        st.session_state.current_chat = new_id
-        save_chat_to_db(new_id, [])
-        st.rerun()
-
-    st.divider()
-    
-    chat_names = list(st.session_state.chats.keys())
-    for chat_name in chat_names:
-        col_select, col_edit, col_del = st.columns([3, 1, 1])
+        st.divider()
         
-        with col_select:
-            if st.button(chat_name, key=f"select_{chat_name}"):
-                st.session_state.current_chat = chat_name
-                st.rerun()
-                
-        with col_edit:
-            with st.popover("✏️"):
-                new_name = st.text_input("Rename Chat:", value=chat_name, key=f"rename_{chat_name}")
-                if st.button("Save", key=f"save_{chat_name}"):
-                    if new_name and new_name != chat_name:
-                        st.session_state.chats[new_name] = st.session_state.chats.pop(chat_name)
-                        rename_chat_in_db(chat_name, new_name)
-                        if st.session_state.current_chat == chat_name:
-                            st.session_state.current_chat = new_name
+        chat_names = list(st.session_state.chats.keys())
+        for chat_name in chat_names:
+            col_select, col_edit, col_del = st.columns([3, 1, 1])
+            
+            with col_select:
+                if st.button(chat_name, key=f"select_{chat_name}", use_container_width=True):
+                    st.session_state.current_chat = chat_name
+                    st.rerun()
+                    
+            with col_edit:
+                with st.popover("✏️"):
+                    new_name = st.text_input("Rename Chat:", value=chat_name, key=f"rename_{chat_name}")
+                    if st.button("Save", key=f"save_{chat_name}"):
+                        if new_name and new_name != chat_name:
+                            st.session_state.chats[new_name] = st.session_state.chats.pop(chat_name)
+                            rename_chat_in_db(chat_name, new_name)
+                            if st.session_state.current_chat == chat_name:
+                                st.session_state.current_chat = new_name
+                            st.rerun()
+
+            with col_del:
+                if len(st.session_state.chats) > 1:
+                    if st.button("🗑️", key=f"del_{chat_name}"):
+                        del st.session_state.chats[chat_name]
+                        delete_chat_from_db(chat_name)
+                        st.session_state.current_chat = list(st.session_state.chats.keys())[0]
                         st.rerun()
 
-        with col_del:
-            if len(st.session_state.chats) > 1:
-                if st.button("🗑️", key=f"del_{chat_name}"):
-                    del st.session_state.chats[chat_name]
-                    delete_chat_from_db(chat_name)
-                    st.session_state.current_chat = list(st.session_state.chats.keys())[0]
-                    st.rerun()
+        st.divider()
+        st.subheader("⏪ Rewind Chat")
+        
+        active_messages = st.session_state.chats[st.session_state.current_chat]
+        for idx, msg in enumerate(active_messages):
+            role_label = "You" if msg["role"] == "user" else "AI"
+            preview = msg["content"][:18] + "..." if len(msg["content"]) > 18 else msg["content"]
+            if st.button(f"[{role_label}] {preview}", key=f"side_rewind_{idx}", use_container_width=True):
+                st.session_state.chats[st.session_state.current_chat] = active_messages[:idx + 1]
+                save_chat_to_db(st.session_state.current_chat, st.session_state.chats[st.session_state.current_chat])
+                st.rerun()
 
-    st.divider()
-    st.header("⏪ Rewind Chat")
-    
-    active_messages = st.session_state.chats[st.session_state.current_chat]
-    for idx, msg in enumerate(active_messages):
-        role_label = "You" if msg["role"] == "user" else "AI"
-        preview = msg["content"][:18] + "..." if len(msg["content"]) > 18 else msg["content"]
-        if st.button(f"[{role_label}] {preview}", key=f"side_rewind_{idx}"):
-            st.session_state.chats[st.session_state.current_chat] = active_messages[:idx + 1]
-            save_chat_to_db(st.session_state.current_chat, st.session_state.chats[st.session_state.current_chat])
-            st.rerun()
+    with tab_memory:
+        st.subheader("🧠 Global Memory")
+        st.caption("Instructions saved here apply to ALL chats:")
+        user_memory_input = st.text_area("Persona & Rules:", value=st.session_state.global_memory, height=120)
+        if st.button("Save Memory", use_container_width=True):
+            st.session_state.global_memory = user_memory_input
+            save_memory_to_db(user_memory_input)
+            st.success("Global memory updated!")
+
+    with tab_settings:
+        st.subheader("Preferences")
+        dark_mode = st.toggle("🌙 Dark Mode", value=True)
 
 # Dynamic Theme Override
 if dark_mode:
@@ -261,47 +210,61 @@ if dark_mode:
         unsafe_allow_html=True
     )
 
-st.title("My AI Chatbot")
+# --- LAYOUT IMPROVEMENT #1: DASHBOARD HEADER ---
+header_col1, header_col2 = st.columns([3, 1])
 
-# --- DISPLAY MESSAGES ---
+with header_col1:
+    st.title("⚡ My AI Chatbot")
+    st.caption("Powered by Groq & Pollinations AI")
+
+with header_col2:
+    if st.button("🗑️ Clear Screen", use_container_width=True):
+        st.session_state.chats[st.session_state.current_chat] = []
+        save_chat_to_db(st.session_state.current_chat, [])
+        st.rerun()
+
+st.divider()
+
+# --- LAYOUT IMPROVEMENT #3: CARD-STYLE MESSAGES ---
 active_messages = st.session_state.chats[st.session_state.current_chat]
 
 for idx, message in enumerate(active_messages):
     with st.chat_message(message["role"]):
-        st.write(message["content"])
-        
-        if "IMAGE_URL:" in message["content"]:
-            img_url = message["content"].split("IMAGE_URL:")[1].strip()
-            st.image(img_url, caption="Generated Image")
-        elif "VIDEO_URL:" in message["content"]:
-            vid_url = message["content"].split("VIDEO_URL:")[1].strip()
-            st.video(vid_url)
+        with st.container(border=True):
+            st.write(message["content"])
+            
+            if "IMAGE_URL:" in message["content"]:
+                img_url = message["content"].split("IMAGE_URL:")[1].strip()
+                st.image(img_url, caption="Generated Image")
+            elif "VIDEO_URL:" in message["content"]:
+                vid_url = message["content"].split("VIDEO_URL:")[1].strip()
+                st.video(vid_url)
 
-        col1, col2 = st.columns([1, 4])
-        with col1:
-            if st.button("🔊 Voice", key=f"voice_{idx}"):
-                clean_text = message["content"].split("IMAGE_URL:")[0].split("VIDEO_URL:")[0]
-                audio_data = get_voice_audio(clean_text)
-                st.audio(audio_data, format="audio/mp3", autoplay=True)
-        with col2:
-            with st.expander("⚙️ Options"):
-                if message["role"] == "user":
-                    new_text = st.text_input("Edit message:", value=message["content"], key=f"edit_input_{idx}")
-                    if st.button("Save & Resend", key=f"save_edit_{idx}"):
-                        st.session_state.chats[st.session_state.current_chat] = active_messages[:idx]
-                        st.session_state.chats[st.session_state.current_chat].append({"role": "user", "content": new_text})
+            col1, col2 = st.columns([1, 4])
+            with col1:
+                if st.button("🔊 Voice", key=f"voice_{idx}"):
+                    clean_text = message["content"].split("IMAGE_URL:")[0].split("VIDEO_URL:")[0]
+                    audio_data = get_voice_audio(clean_text)
+                    st.audio(audio_data, format="audio/mp3", autoplay=True)
+            with col2:
+                with st.expander("⚙️ Options"):
+                    if message["role"] == "user":
+                        new_text = st.text_input("Edit message:", value=message["content"], key=f"edit_input_{idx}")
+                        if st.button("Save & Resend", key=f"save_edit_{idx}"):
+                            st.session_state.chats[st.session_state.current_chat] = active_messages[:idx]
+                            st.session_state.chats[st.session_state.current_chat].append({"role": "user", "content": new_text})
+                            save_chat_to_db(st.session_state.current_chat, st.session_state.chats[st.session_state.current_chat])
+                            st.rerun()
+                    
+                    if st.button("⏪ Rewind to here", key=f"rewind_msg_{idx}"):
+                        st.session_state.chats[st.session_state.current_chat] = active_messages[:idx + 1]
                         save_chat_to_db(st.session_state.current_chat, st.session_state.chats[st.session_state.current_chat])
                         st.rerun()
-                
-                if st.button("⏪ Rewind to here", key=f"rewind_msg_{idx}"):
-                    st.session_state.chats[st.session_state.current_chat] = active_messages[:idx + 1]
-                    save_chat_to_db(st.session_state.current_chat, st.session_state.chats[st.session_state.current_chat])
-                    st.rerun()
 
-                if st.button("🗑️ Delete this message", key=f"del_msg_{idx}"):
-                    active_messages.pop(idx)
-                    save_chat_to_db(st.session_state.current_chat, active_messages)
-                    st.rerun()
+                    if st.button("🗑️ Delete this message", key=f"del_msg_{idx}"):
+                        active_messages.pop(idx)
+                        save_chat_to_db(st.session_state.current_chat, active_messages)
+                        st.rerun()
 
 # --- ATTACHMENT POPOVER ---
 with st.popover("📎 Attach File / Image"):

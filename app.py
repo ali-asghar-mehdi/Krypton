@@ -109,6 +109,23 @@ if "theme_choice" not in st.session_state:
 if "rename_target" not in st.session_state:
     st.session_state.rename_target = None
 
+if "tip_index" not in st.session_state:
+    st.session_state.tip_index = 0
+
+# --- TIPS ---
+TIPS = [
+    "You can rename chats from the sidebar.",
+    "Krypton can generate images — just ask.",
+    "Use Memory to customize Krypton’s personality.",
+    "You can rewind any chat from the sidebar.",
+    "Try switching to OLED Pitch Black theme.",
+    "Krypton remembers your preferences during the session."
+]
+
+def get_next_tip():
+    st.session_state.tip_index = (st.session_state.tip_index + 1) % len(TIPS)
+    return TIPS[st.session_state.tip_index]
+
 # --- RENAME CHAT ---
 def rename_chat(old_title, new_title):
     new_title = new_title.strip()
@@ -200,6 +217,15 @@ st.markdown(
         border-color: #55555A !important;
         background-color: #2F2F32 !important;
     }}
+
+    .tip-card {{
+        padding: 12px;
+        border-radius: 8px;
+        background-color: #1E1F20;
+        border: 1px solid #2A2B2D;
+        margin-top: 10px;
+        font-size: 14px;
+    }}
     </style>
     """,
     unsafe_allow_html=True
@@ -242,6 +268,18 @@ with st.sidebar:
                     delete_chat_from_db(chat_name)
                     st.session_state.current_chat = list(st.session_state.chats.keys())[0]
                     st.rerun()
+
+        # --- TIP BOX ---
+        tip = get_next_tip()
+        st.markdown(
+            f"""
+            <div class="tip-card">
+                <strong>💡 Krypton Tip</strong><br>
+                {tip}
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
 
         # --- RENAME POPUP ---
         if st.session_state.rename_target:

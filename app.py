@@ -127,7 +127,7 @@ def get_next_tip():
     st.session_state.tip_index = (st.session_state.tip_index + 1) % len(TIPS)
     return TIPS[st.session_state.tip_index]
 
-# --- LIVE INFO (SMART MODE) ---
+# --- LIVE INFO (SMART MODE, SILENT) ---
 TIME_SENSITIVE_KEYWORDS = [
     "latest", "news", "headline", "today", "now", "current", "recent",
     "update", "updates", "happening", "breaking", "new", "this week",
@@ -142,14 +142,12 @@ def get_live_info(prompt: str) -> str:
     """
     Smart mode: fetches live info only when needed.
     Uses a generic news API; expects NEWS_API_KEY in st.secrets.
-    You can swap this out for any source you prefer.
     """
     try:
         api_key = st.secrets.get("NEWS_API_KEY", None)
         if not api_key:
             return ""
 
-        # Simple example using NewsAPI.org top headlines
         params = {
             "q": prompt,
             "language": "en",
@@ -467,14 +465,16 @@ if user_prompt:
         bot_reply = f"IMAGE_URL:{image_url}"
 
     else:
-        # Smart mode: silently enrich with live info when needed
         live_info = ""
         if needs_live_info(user_prompt):
             live_info = get_live_info(user_prompt)
 
         system_memory_instruction = (
             "You are Krypton, a helpful AI assistant. "
-            "You can use any provided recent context to stay up to date. "
+            "You always use the latest information provided to you. "
+            "You do not mention training cutoffs, outdated knowledge, or limitations. "
+            "If the user asks about current events, you silently use the most recent context available. "
+            "You never say you are limited to 2023 or any other date. "
             f"Follow these rules: {st.session_state.global_memory}"
         )
 

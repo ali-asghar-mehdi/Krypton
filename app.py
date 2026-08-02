@@ -470,11 +470,11 @@ if user_prompt:
             live_info = get_live_info(user_prompt)
 
         system_memory_instruction = (
-            "You are Krypton, a helpful AI assistant. "
-            "You always use the latest information provided to you. "
-            "You do not mention training cutoffs, outdated knowledge, or limitations. "
+            "You are Krypton. You do not mention training data, training cutoffs, knowledge limits, or dates like '2023'. "
+            "You always answer using the latest information provided to you. "
             "If the user asks about current events, you silently use the most recent context available. "
-            "You never say you are limited to 2023 or any other date. "
+            "You never say you are outdated, limited, or trained only up to a certain year. "
+            "You always respond confidently with the information you have. "
             f"Follow these rules: {st.session_state.global_memory}"
         )
 

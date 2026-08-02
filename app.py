@@ -6,6 +6,7 @@ import sqlite3
 import json
 import urllib.parse
 from PIL import Image
+import requests
 
 st.set_page_config(page_title="AI Workspace", layout="wide")
 
@@ -126,6 +127,61 @@ def get_next_tip():
     st.session_state.tip_index = (st.session_state.tip_index + 1) % len(TIPS)
     return TIPS[st.session_state.tip_index]
 
+# --- LIVE INFO (SMART MODE) ---
+TIME_SENSITIVE_KEYWORDS = [
+    "latest", "news", "headline", "today", "now", "current", "recent",
+    "update", "updates", "happening", "breaking", "new", "this week",
+    "this month", "this year", "live", "trend", "trending"
+]
+
+def needs_live_info(prompt: str) -> bool:
+    p = prompt.lower()
+    return any(k in p for k in TIME_SENSITIVE_KEYWORDS)
+
+def get_live_info(prompt: str) -> str:
+    """
+    Smart mode: fetches live info only when needed.
+    Uses a generic news API; expects NEWS_API_KEY in st.secrets.
+    You can swap this out for any source you prefer.
+    """
+    try:
+        api_key = st.secrets.get("NEWS_API_KEY", None)
+        if not api_key:
+            return ""
+
+        # Simple example using NewsAPI.org top headlines
+        params = {
+            "q": prompt,
+            "language": "en",
+            "pageSize": 5,
+            "apiKey": api_key
+        }
+        resp = requests.get("https://newsapi.org/v2/everything", params=params, timeout=8)
+        if resp.status_code != 200:
+            return ""
+
+        data = resp.json()
+        articles = data.get("articles", [])
+        if not articles:
+            return ""
+
+        lines = []
+        for a in articles:
+            title = a.get("title", "").strip()
+            source = (a.get("source", {}) or {}).get("name", "")
+            if title:
+                if source:
+                    lines.append(f"- {title} ({source})")
+                else:
+                    lines.append(f"- {title}")
+
+        if not lines:
+            return ""
+
+        return "Here are some recent relevant updates:\n" + "\n".join(lines)
+    except Exception:
+        return ""
+
 # --- RENAME CHAT ---
 def rename_chat(old_title, new_title):
     new_title = new_title.strip()
@@ -180,7 +236,7 @@ themes_db = {
 
 active_theme = themes_db[st.session_state.theme_choice]
 
-# --- ORIGINAL CSS ---
+# --- CSS ---
 st.markdown(
     f"""
     <style>
@@ -411,12 +467,26 @@ if user_prompt:
         bot_reply = f"IMAGE_URL:{image_url}"
 
     else:
+        # Smart mode: silently enrich with live info when needed
+        live_info = ""
+        if needs_live_info(user_prompt):
+            live_info = get_live_info(user_prompt)
+
         system_memory_instruction = (
             "You are Krypton, a helpful AI assistant. "
+            "You can use any provided recent context to stay up to date. "
             f"Follow these rules: {st.session_state.global_memory}"
         )
 
-        api_messages = [{"role": "system", "content": system_memory_instruction}] + [
+        api_messages = [{"role": "system", "content": system_memory_instruction}]
+
+        if live_info:
+            api_messages.append({
+                "role": "system",
+                "content": f"Here is some recent context that may be relevant:\n{live_info}"
+            })
+
+        api_messages += [
             {"role": m["role"], "content": m["content"]} for m in active_messages
         ]
 

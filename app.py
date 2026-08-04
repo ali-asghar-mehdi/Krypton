@@ -78,6 +78,7 @@ def restore_chat(title):
             save_chat(title, messages)
             c.execute("DELETE FROM trash_chats WHERE title = ?", (title,))
 
+@st.cache_data
 def load_memory_from_db():
     with sqlite3.connect(DB_FILE) as conn:
         c = conn.cursor()
@@ -89,9 +90,14 @@ def save_memory_to_db(text):
     with sqlite3.connect(DB_FILE) as conn:
         c = conn.cursor()
         c.execute("INSERT OR REPLACE INTO global_memory (id, instructions) VALUES (1, ?)", (text,))
+    st.cache_data.clear()
 
-# ---------- CLIENT ----------
-client = Groq(api_key=st.secrets["GROQ_API_KEY"])
+# ---------- CACHED CLIENT ----------
+@st.cache_resource
+def get_groq_client():
+    return Groq(api_key=st.secrets["GROQ_API_KEY"])
+
+client = get_groq_client()
 
 # ---------- SESSION STATE ----------
 if "chats" not in st.session_state:
@@ -447,10 +453,10 @@ for idx, msg in enumerate(active_messages):
                         save_trash(st.session_state.trash_current_chat, active_messages)
                     st.rerun()
 
-# REGENERATE BUTTON WITH FAST STREAMING
+# REGENERATE BUTTON
 if active_messages and active_messages[-1]["role"] == "assistant":
     if st.button("🔄 Regenerate Response"):
-        active_messages.pop()  # Remove last response
+        active_messages.pop()
         last_user_prompt = active_messages[-1]["content"] if active_messages else ""
         if last_user_prompt:
             with st.chat_message("assistant"):

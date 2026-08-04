@@ -467,7 +467,7 @@ for idx, msg in enumerate(active_messages):
                         save_trash(st.session_state.trash_current_chat, active_messages)
                     st.rerun()
 
-# REGENERATE BUTTON (Visible if the last message is from the assistant)
+# REGENERATE BUTTON (Works in both normal and trash mode if last message is from assistant)
 if active_messages and active_messages[-1]["role"] == "assistant":
     if st.button("🔄 Regenerate Response"):
         active_messages.pop()  # Remove the last AI response

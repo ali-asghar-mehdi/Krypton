@@ -254,7 +254,7 @@ def rename_chat(old_title, new_title):
 
 # ---------- SIDEBAR ----------
 with st.sidebar:
-    tab_chats, tab_memory, tab_themes = st.tabs(["💬 Chats", "🧠 Memory & Trash", "🎨 Themes"])
+    tab_chats, tab_memory, tab_themes = st.tabs(["💬 Chats", "🧠 Memory", "🎨 Themes"])
 
     # CHATS TAB
     with tab_chats:

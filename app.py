@@ -8,74 +8,74 @@ import urllib.parse
 
 st.set_page_config(page_title="AI Workspace", layout="wide")
 
-# --- DATABASE SETUP ---
 DB_FILE = "chats.db"
 
+# ---------- DB SETUP ----------
 def init_db():
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
+
     c.execute("""
         CREATE TABLE IF NOT EXISTS chats (
             title TEXT PRIMARY KEY,
             messages TEXT
         )
     """)
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS global_memory (
-            id INTEGER PRIMARY KEY,
-            instructions TEXT
-        )
-    """)
+
     c.execute("""
         CREATE TABLE IF NOT EXISTS trash_chats (
             title TEXT PRIMARY KEY,
             messages TEXT
         )
     """)
+
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS global_memory (
+            id INTEGER PRIMARY KEY,
+            instructions TEXT
+        )
+    """)
+
     conn.commit()
     conn.close()
 
-def load_chats_from_db():
+init_db()
+
+def load_chats():
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
     c.execute("SELECT title, messages FROM chats")
     rows = c.fetchall()
     conn.close()
+    return {title: json.loads(msgs) for title, msgs in rows} or {"New Chat": []}
 
-    chats = {}
-    for title, msgs_json in rows:
-        chats[title] = json.loads(msgs_json)
-
-    if not chats:
-        chats = {"New Chat": []}
-    return chats
-
-def save_chat_to_db(title, messages):
+def load_trash():
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
-    c.execute(
-        "INSERT OR REPLACE INTO chats (title, messages) VALUES (?, ?)",
-        (title, json.dumps(messages))
-    )
+    c.execute("SELECT title, messages FROM trash_chats")
+    rows = c.fetchall()
+    conn.close()
+    return {title: json.loads(msgs) for title, msgs in rows}
+
+def save_chat(title, messages):
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("INSERT OR REPLACE INTO chats (title, messages) VALUES (?, ?)", (title, json.dumps(messages)))
     conn.commit()
     conn.close()
 
-def delete_chat_from_db(title):
+def save_trash(title, messages):
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("INSERT OR REPLACE INTO trash_chats (title, messages) VALUES (?, ?)", (title, json.dumps(messages)))
+    conn.commit()
+    conn.close()
+
+def move_to_trash(title, messages):
+    save_trash(title, messages)
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
     c.execute("DELETE FROM chats WHERE title = ?", (title,))
-    conn.commit()
-    conn.close()
-
-def rename_chat_in_db(old_title, new_title):
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    c.execute("SELECT messages FROM chats WHERE title = ?", (old_title,))
-    row = c.fetchone()
-    if row:
-        msgs = row[0]
-        c.execute("DELETE FROM chats WHERE title = ?", (old_title,))
-        c.execute("INSERT OR REPLACE INTO chats (title, messages) VALUES (?, ?)", (new_title, msgs))
     conn.commit()
     conn.close()
 
@@ -87,58 +87,28 @@ def load_memory_from_db():
     conn.close()
     return row[0] if row else ""
 
-def save_memory_to_db(memory_text):
+def save_memory_to_db(text):
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
-    c.execute("INSERT OR REPLACE INTO global_memory (id, instructions) VALUES (1, ?)", (memory_text,))
+    c.execute("INSERT OR REPLACE INTO global_memory (id, instructions) VALUES (1, ?)", (text,))
     conn.commit()
     conn.close()
 
-def load_trash_chats():
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    c.execute("SELECT title, messages FROM trash_chats")
-    rows = c.fetchall()
-    conn.close()
-
-    trash = {}
-    for title, msgs_json in rows:
-        trash[title] = json.loads(msgs_json)
-    return trash
-
-def move_chat_to_trash(title):
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    messages = json.dumps(st.session_state.chats[title])
-    c.execute("INSERT OR REPLACE INTO trash_chats (title, messages) VALUES (?, ?)", (title, messages))
-    conn.commit()
-    conn.close()
-
-def restore_chat(title):
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    c.execute("SELECT messages FROM trash_chats WHERE title = ?", (title,))
-    row = c.fetchone()
-
-    if row:
-        messages = json.loads(row[0])
-        st.session_state.chats[title] = messages
-        save_chat_to_db(title, messages)
-        c.execute("DELETE FROM trash_chats WHERE title = ?", (title,))
-        conn.commit()
-
-    conn.close()
-
-init_db()
-
+# ---------- CLIENT ----------
 client = Groq(api_key=st.secrets["GROQ_API_KEY"])
 
-# --- SESSION STATE ---
+# ---------- SESSION STATE ----------
 if "chats" not in st.session_state:
-    st.session_state.chats = load_chats_from_db()
+    st.session_state.chats = load_chats()
+
+if "trash_chats" not in st.session_state:
+    st.session_state.trash_chats = load_trash()
 
 if "current_chat" not in st.session_state or st.session_state.current_chat not in st.session_state.chats:
     st.session_state.current_chat = list(st.session_state.chats.keys())[0]
+
+if "trash_current_chat" not in st.session_state:
+    st.session_state.trash_current_chat = None
 
 if "global_memory" not in st.session_state:
     st.session_state.global_memory = load_memory_from_db()
@@ -152,7 +122,7 @@ if "rename_target" not in st.session_state:
 if "tip_index" not in st.session_state:
     st.session_state.tip_index = 0
 
-# --- TIPS ---
+# ---------- TIPS ----------
 TIPS = [
     "You can rename chats from the sidebar.",
     "Krypton can generate images — just ask.",
@@ -166,45 +136,7 @@ def get_next_tip():
     st.session_state.tip_index = (st.session_state.tip_index + 1) % len(TIPS)
     return TIPS[st.session_state.tip_index]
 
-# --- RENAME CHAT ---
-def rename_chat(old_title, new_title):
-    new_title = new_title.strip()
-    if not new_title:
-        return False
-    if new_title in st.session_state.chats:
-        return False
-
-    st.session_state.chats[new_title] = st.session_state.chats.pop(old_title)
-    rename_chat_in_db(old_title, new_title)
-
-    if st.session_state.current_chat == old_title:
-        st.session_state.current_chat = new_title
-
-    return True
-
-# --- TITLE GENERATION ---
-def generate_chat_title(first_prompt):
-    try:
-        response = client.chat.completions.create(
-            model="llama-3.1-8b-instant",
-            messages=[
-                {"role": "system", "content": "Generate a short title (2-4 words max). No punctuation."},
-                {"role": "user", "content": first_prompt}
-            ]
-        )
-        return response.choices[0].message.content.strip()
-    except Exception:
-        return f"Chat {len(st.session_state.chats)}"
-
-# --- TTS ---
-def get_voice_audio(text):
-    tts = gTTS(text=text, lang='en', tld='com')
-    fp = io.BytesIO()
-    tts.write_to_fp(fp)
-    fp.seek(0)
-    return fp
-
-# --- THEMES ---
+# ---------- THEMES ----------
 themes_db = {
     "1. Minimal Dark (Gemini Gray)": {"app_bg": "#131314", "sidebar_bg": "#1E1F20", "user": "#2F2F32", "ai": "#1A73E8"},
     "2. ChatGPT Dark (Classic Charcoal)": {"app_bg": "#212121", "sidebar_bg": "#171717", "user": "#2F2F2F", "ai": "#10A37F"},
@@ -220,7 +152,6 @@ themes_db = {
 
 active_theme = themes_db[st.session_state.theme_choice]
 
-# --- CSS ---
 st.markdown(
     f"""
     <style>
@@ -231,13 +162,11 @@ st.markdown(
     [data-testid="stSidebar"], [data-testid="stSidebarContent"] {{
         background-color: {active_theme['sidebar_bg']} !important;
     }}
-
     [data-testid="stChatMessage"] {{
         background-color: transparent !important;
         border: none !important;
         padding: 8px 0px !important;
     }}
-
     [data-testid="stChatMessageAvatarUser"] {{
         background-color: {active_theme['user']} !important;
         color: #FFFFFF !important;
@@ -246,7 +175,6 @@ st.markdown(
         background-color: {active_theme['ai']} !important;
         color: #FFFFFF !important;
     }}
-
     .stButton > button {{
         border-radius: 8px !important;
         border: 1px solid #333336 !important;
@@ -257,7 +185,6 @@ st.markdown(
         border-color: #55555A !important;
         background-color: #2F2F32 !important;
     }}
-
     .tip-card {{
         padding: 12px;
         border-radius: 8px;
@@ -271,43 +198,70 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-# --- SIDEBAR ---
-with st.sidebar:
-    tab_chats, tab_memory, tab_themes = st.tabs(["💬 Chats", "🧠 Memory", "🎨 Themes"])
+# ---------- UTIL ----------
+def get_voice_audio(text):
+    tts = gTTS(text=text, lang='en', tld='com')
+    fp = io.BytesIO()
+    tts.write_to_fp(fp)
+    fp.seek(0)
+    return fp
 
-    # --- CHATS TAB ---
+def generate_chat_title(first_prompt):
+    try:
+        resp = client.chat.completions.create(
+            model="llama-3.1-8b-instant",
+            messages=[
+                {"role": "system", "content": "Generate a short title (2-4 words). No punctuation."},
+                {"role": "user", "content": first_prompt}
+            ]
+        )
+        return resp.choices[0].message.content.strip()
+    except Exception:
+        return f"Chat {len(st.session_state.chats)}"
+
+def rename_chat(old_title, new_title):
+    new_title = new_title.strip()
+    if not new_title or new_title in st.session_state.chats:
+        return False
+    st.session_state.chats[new_title] = st.session_state.chats.pop(old_title)
+    save_chat(new_title, st.session_state.chats[new_title])
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("DELETE FROM chats WHERE title = ?", (old_title,))
+    conn.commit()
+    conn.close()
+    if st.session_state.current_chat == old_title:
+        st.session_state.current_chat = new_title
+    return True
+
+# ---------- SIDEBAR ----------
+with st.sidebar:
+    tab_chats, tab_memory, tab_themes = st.tabs(["💬 Chats", "🧠 Memory & Trash", "🎨 Themes"])
+
+    # CHATS TAB
     with tab_chats:
         if st.button("+ New Chat", type="primary", use_container_width=True):
             new_id = f"New Chat {len(st.session_state.chats) + 1}"
             st.session_state.chats[new_id] = []
             st.session_state.current_chat = new_id
-            save_chat_to_db(new_id, [])
+            save_chat(new_id, [])
             st.rerun()
 
         st.caption("Recent Conversations")
-
-        chat_names = list(st.session_state.chats.keys())
-
-        for chat_name in chat_names:
+        for name in list(st.session_state.chats.keys()):
             col1, col2 = st.columns([5, 2])
-
             with col1:
-                if st.button(chat_name, key=f"select_{chat_name}", use_container_width=True):
-                    st.session_state.current_chat = chat_name
+                if st.button(name, key=f"chat_{name}", use_container_width=True):
+                    st.session_state.current_chat = name
                     st.rerun()
-
             with col2:
-                rename_btn = st.button("✏️", key=f"rename_{chat_name}")
-                delete_btn = st.button("🗑️", key=f"delete_{chat_name}")
-
-                if rename_btn:
-                    st.session_state.rename_target = chat_name
-
-                if delete_btn and len(st.session_state.chats) > 1:
-                    move_chat_to_trash(chat_name)
-                    del st.session_state.chats[chat_name]
-                    delete_chat_from_db(chat_name)
+                if st.button("✏️", key=f"rename_{name}"):
+                    st.session_state.rename_target = name
+                if st.button("🗑️", key=f"delete_{name}") and len(st.session_state.chats) > 1:
+                    move_to_trash(name, st.session_state.chats[name])
+                    del st.session_state.chats[name]
                     st.session_state.current_chat = list(st.session_state.chats.keys())[0]
+                    st.session_state.trash_chats = load_trash()
                     st.rerun()
 
         tip = get_next_tip()
@@ -324,9 +278,7 @@ with st.sidebar:
         if st.session_state.rename_target:
             st.divider()
             st.subheader(f"Rename: {st.session_state.rename_target}")
-
             new_name = st.text_input("New name:", key="rename_input")
-
             col_ok, col_cancel = st.columns(2)
             with col_ok:
                 if st.button("Save"):
@@ -335,159 +287,169 @@ with st.sidebar:
                         st.rerun()
                     else:
                         st.warning("Invalid or duplicate name.")
-
             with col_cancel:
                 if st.button("Cancel"):
                     st.session_state.rename_target = None
                     st.rerun()
 
-    # --- MEMORY TAB ---
+    # MEMORY + TRASH TAB
     with tab_memory:
-        st.caption("Instructions saved here apply to ALL chats:")
-        user_memory_input = st.text_area("Persona & Rules:", value=st.session_state.global_memory, height=120)
+        st.caption("Global instructions for Krypton:")
+        mem_input = st.text_area("Persona & Rules:", value=st.session_state.global_memory, height=120)
         if st.button("Save Memory", use_container_width=True):
-            st.session_state.global_memory = user_memory_input
-            save_memory_to_db(user_memory_input)
+            st.session_state.global_memory = mem_input
+            save_memory_to_db(mem_input)
             st.success("Saved!")
 
         st.divider()
         st.subheader("🗑️ Trash — Deleted Chats")
 
-        trash_chats = load_trash_chats()
-        if not trash_chats:
-            st.caption("No deleted chats yet.")
-        else:
-            for title in trash_chats:
-                st.write(f"**{title}**")
-                col1, col2 = st.columns(2)
-                with col1:
-                    if st.button(f"Restore {title}", key=f"restore_{title}"):
-                        restore_chat(title)
-                        st.rerun()
-                with col2:
-                    if st.button(f"Continue {title}", key=f"continue_{title}"):
-                        restore_chat(title)
-                        st.session_state.current_chat = title
-                        st.rerun()
+        st.session_state.trash_chats = load_trash()
+        trash = st.session_state.trash_chats
 
-    # --- THEMES TAB ---
+        if st.session_state.trash_current_chat is None:
+            if not trash:
+                st.caption("No deleted chats yet.")
+            else:
+                for title in trash.keys():
+                    st.write(f"**{title}**")
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        if st.button(f"Open {title}", key=f"open_trash_{title}"):
+                            st.session_state.trash_current_chat = title
+                            st.rerun()
+                    with col2:
+                        if st.button(f"Delete Permanently {title}", key=f"purge_{title}"):
+                            conn = sqlite3.connect(DB_FILE)
+                            c = conn.cursor()
+                            c.execute("DELETE FROM trash_chats WHERE title = ?", (title,))
+                            conn.commit()
+                            conn.close()
+                            st.session_state.trash_current_chat = None
+                            st.session_state.trash_chats = load_trash()
+                            st.rerun()
+        else:
+            title = st.session_state.trash_current_chat
+            messages = trash.get(title, [])
+            st.write(f"### 🗑️ {title} (Trash Chat)")
+
+            for msg in messages:
+                with st.chat_message(msg["role"]):
+                    st.write(msg["content"])
+
+            trash_input = st.chat_input("Continue this deleted chat...")
+            if trash_input:
+                messages.append({"role": "user", "content": trash_input})
+                system_instruction = (
+                    "You are Krypton. You do not mention training data, training cutoffs, knowledge limits, "
+                    "or dates like '2023'. You never say you are outdated or limited. "
+                    "You respond confidently using the information in this conversation and the user's memory."
+                    f" Follow these rules: {st.session_state.global_memory}"
+                )
+                api_messages = [{"role": "system", "content": system_instruction}] + messages
+                resp = client.chat.completions.create(
+                    model="llama-3.1-8b-instant",
+                    messages=api_messages
+                )
+                bot_reply = resp.choices[0].message.content
+                messages.append({"role": "assistant", "content": bot_reply})
+                save_trash(title, messages)
+                st.session_state.trash_chats[title] = messages
+                st.rerun()
+
+            if st.button("Back to Trash List"):
+                st.session_state.trash_current_chat = None
+                st.rerun()
+
+    # THEMES TAB
     with tab_themes:
         st.caption("Choose your design preset:")
-        theme_options = list(themes_db.keys())
-        selected_theme = st.selectbox(
+        options = list(themes_db.keys())
+        selected = st.selectbox(
             "Theme Presets:",
-            theme_options,
-            index=theme_options.index(st.session_state.theme_choice)
+            options,
+            index=options.index(st.session_state.theme_choice)
         )
-        st.session_state.theme_choice = selected_theme
+        st.session_state.theme_choice = selected
 
-# --- HEADER ---
-header_col1, header_col2 = st.columns([4, 1])
-
-with header_col1:
+# ---------- HEADER ----------
+col_h1, col_h2 = st.columns([4, 1])
+with col_h1:
     st.markdown("### 💬 Chat")
-
-with header_col2:
+with col_h2:
     if st.button("Clear Screen", use_container_width=True):
         st.session_state.chats[st.session_state.current_chat] = []
-        save_chat_to_db(st.session_state.current_chat, [])
+        save_chat(st.session_state.current_chat, [])
         st.rerun()
 
-# --- MESSAGE DISPLAY ---
+# ---------- MAIN CHAT DISPLAY ----------
 active_messages = st.session_state.chats[st.session_state.current_chat]
 
-for idx, message in enumerate(active_messages):
-    with st.chat_message(message["role"]):
-        content = message["content"]
-
-        if "IMAGE_URL:" in content:
-            text_part, img_url = content.split("IMAGE_URL:")
-            if text_part.strip():
-                st.write(text_part.strip())
-            st.image(img_url.strip(), use_container_width=True)
-
-        elif "VIDEO_URL:" in content:
-            text_part, vid_url = content.split("VIDEO_URL:")
-            if text_part.strip():
-                st.write(text_part.strip())
-            st.video(vid_url.strip())
-
-        else:
-            st.write(content)
+for idx, msg in enumerate(active_messages):
+    with st.chat_message(msg["role"]):
+        content = msg["content"]
+        st.write(content)
 
         col1, col2 = st.columns([1, 5])
         with col1:
             if st.button("🔊", key=f"voice_{idx}"):
-                clean_text = content.split("IMAGE_URL:")[0].split("VIDEO_URL:")[0]
-                audio_data = get_voice_audio(clean_text)
-                st.audio(audio_data, format="audio/mp3", autoplay=True)
-
+                audio = get_voice_audio(content)
+                st.audio(audio, format="audio/mp3", autoplay=True)
         with col2:
             with st.expander("More", expanded=False):
-                if message["role"] == "user":
-                    new_text = st.text_input("Edit message:", value=content, key=f"edit_input_{idx}")
+                if msg["role"] == "user":
+                    new_text = st.text_input("Edit message:", value=content, key=f"edit_{idx}")
                     if st.button("Save & Resend", key=f"save_edit_{idx}"):
                         st.session_state.chats[st.session_state.current_chat] = active_messages[:idx]
                         st.session_state.chats[st.session_state.current_chat].append({"role": "user", "content": new_text})
-                        save_chat_to_db(st.session_state.current_chat, st.session_state.chats[st.session_state.current_chat])
+                        save_chat(st.session_state.current_chat, st.session_state.chats[st.session_state.current_chat])
                         st.rerun()
-
-                if st.button("⏪ Rewind to here", key=f"rewind_msg_{idx}"):
+                if st.button("⏪ Rewind to here", key=f"rewind_{idx}"):
                     st.session_state.chats[st.session_state.current_chat] = active_messages[:idx + 1]
-                    save_chat_to_db(st.session_state.current_chat, st.session_state.chats[st.session_state.current_chat])
+                    save_chat(st.session_state.current_chat, st.session_state.chats[st.session_state.current_chat])
                     st.rerun()
-
                 if st.button("Delete message", key=f"del_msg_{idx}"):
                     active_messages.pop(idx)
-                    save_chat_to_db(st.session_state.current_chat, active_messages)
+                    save_chat(st.session_state.current_chat, active_messages)
                     st.rerun()
 
-# --- INPUT AREA ---
+# ---------- INPUT ----------
 user_prompt = st.chat_input("Ask anything...")
 
 if user_prompt:
     if len(active_messages) == 0:
         auto_title = generate_chat_title(user_prompt)
-        old_title = st.session_state.current_chat
-        rename_chat(old_title, auto_title)
+        old = st.session_state.current_chat
+        rename_chat(old, auto_title)
         active_messages = st.session_state.chats[st.session_state.current_chat]
 
     active_messages.append({"role": "user", "content": user_prompt})
 
     image_keywords = ["draw", "image", "picture", "photo", "illustration", "paint", "sketch", "render"]
     video_keywords = ["video", "clip", "movie", "animation"]
-
     p_lower = user_prompt.lower()
 
     if any(k in p_lower for k in video_keywords) and any(a in p_lower for a in ["make", "create", "generate", "show", "give"]):
-        encoded_prompt = urllib.parse.quote(user_prompt)
-        video_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?model=video"
-        bot_reply = f"Here is your video:\nIMAGE_URL:{video_url}"
-
+        encoded = urllib.parse.quote(user_prompt)
+        video_url = f"https://image.pollinations.ai/prompt/{encoded}?model=video"
+        bot_reply = f"Here is your video:\n{video_url}"
     elif any(k in p_lower for k in image_keywords):
-        encoded_prompt = urllib.parse.quote(user_prompt)
-        image_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}"
-        bot_reply = f"IMAGE_URL:{image_url}"
-
+        encoded = urllib.parse.quote(user_prompt)
+        image_url = f"https://image.pollinations.ai/prompt/{encoded}"
+        bot_reply = f"{image_url}"
     else:
-        system_memory_instruction = (
+        system_instruction = (
             "You are Krypton. You do not mention training data, training cutoffs, knowledge limits, or dates like '2023'. "
-            "You always answer using the information available in this conversation and any instructions provided. "
-            "You never say you are outdated, limited, or trained only up to a certain year. "
-            "You always respond confidently with the information you have. "
-            f"Follow these rules: {st.session_state.global_memory}"
+            "You never say you are outdated or limited. You respond confidently using the information in this conversation "
+            f"and the user's memory. Follow these rules: {st.session_state.global_memory}"
         )
-
-        api_messages = [{"role": "system", "content": system_memory_instruction}] + [
-            {"role": m["role"], "content": m["content"]} for m in active_messages
-        ]
-
-        response = client.chat.completions.create(
+        api_messages = [{"role": "system", "content": system_instruction}] + active_messages
+        resp = client.chat.completions.create(
             model="llama-3.1-8b-instant",
             messages=api_messages
         )
-        bot_reply = response.choices[0].message.content
+        bot_reply = resp.choices[0].message.content
 
     active_messages.append({"role": "assistant", "content": bot_reply})
-    save_chat_to_db(st.session_state.current_chat, active_messages)
+    save_chat(st.session_state.current_chat, active_messages)
     st.rerun()

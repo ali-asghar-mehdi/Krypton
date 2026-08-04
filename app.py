@@ -5,8 +5,6 @@ import io
 import sqlite3
 import json
 import urllib.parse
-from PIL import Image
-import requests
 
 st.set_page_config(page_title="AI Workspace", layout="wide")
 
@@ -26,6 +24,12 @@ def init_db():
         CREATE TABLE IF NOT EXISTS global_memory (
             id INTEGER PRIMARY KEY,
             instructions TEXT
+        )
+    """)
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS trash_chats (
+            title TEXT PRIMARY KEY,
+            messages TEXT
         )
     """)
     conn.commit()
@@ -90,6 +94,41 @@ def save_memory_to_db(memory_text):
     conn.commit()
     conn.close()
 
+def load_trash_chats():
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("SELECT title, messages FROM trash_chats")
+    rows = c.fetchall()
+    conn.close()
+
+    trash = {}
+    for title, msgs_json in rows:
+        trash[title] = json.loads(msgs_json)
+    return trash
+
+def move_chat_to_trash(title):
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    messages = json.dumps(st.session_state.chats[title])
+    c.execute("INSERT OR REPLACE INTO trash_chats (title, messages) VALUES (?, ?)", (title, messages))
+    conn.commit()
+    conn.close()
+
+def restore_chat(title):
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("SELECT messages FROM trash_chats WHERE title = ?", (title,))
+    row = c.fetchone()
+
+    if row:
+        messages = json.loads(row[0])
+        st.session_state.chats[title] = messages
+        save_chat_to_db(title, messages)
+        c.execute("DELETE FROM trash_chats WHERE title = ?", (title,))
+        conn.commit()
+
+    conn.close()
+
 init_db()
 
 client = Groq(api_key=st.secrets["GROQ_API_KEY"])
@@ -126,59 +165,6 @@ TIPS = [
 def get_next_tip():
     st.session_state.tip_index = (st.session_state.tip_index + 1) % len(TIPS)
     return TIPS[st.session_state.tip_index]
-
-# --- LIVE INFO (SMART MODE, SILENT) ---
-TIME_SENSITIVE_KEYWORDS = [
-    "latest", "news", "headline", "today", "now", "current", "recent",
-    "update", "updates", "happening", "breaking", "new", "this week",
-    "this month", "this year", "live", "trend", "trending"
-]
-
-def needs_live_info(prompt: str) -> bool:
-    p = prompt.lower()
-    return any(k in p for k in TIME_SENSITIVE_KEYWORDS)
-
-def get_live_info(prompt: str) -> str:
-    """
-    Smart mode: fetches live info only when needed.
-    Uses a generic news API; expects NEWS_API_KEY in st.secrets.
-    """
-    try:
-        api_key = st.secrets.get("NEWS_API_KEY", None)
-        if not api_key:
-            return ""
-
-        params = {
-            "q": prompt,
-            "language": "en",
-            "pageSize": 5,
-            "apiKey": api_key
-        }
-        resp = requests.get("https://newsapi.org/v2/everything", params=params, timeout=8)
-        if resp.status_code != 200:
-            return ""
-
-        data = resp.json()
-        articles = data.get("articles", [])
-        if not articles:
-            return ""
-
-        lines = []
-        for a in articles:
-            title = a.get("title", "").strip()
-            source = (a.get("source", {}) or {}).get("name", "")
-            if title:
-                if source:
-                    lines.append(f"- {title} ({source})")
-                else:
-                    lines.append(f"- {title}")
-
-        if not lines:
-            return ""
-
-        return "Here are some recent relevant updates:\n" + "\n".join(lines)
-    except Exception:
-        return ""
 
 # --- RENAME CHAT ---
 def rename_chat(old_title, new_title):
@@ -318,6 +304,7 @@ with st.sidebar:
                     st.session_state.rename_target = chat_name
 
                 if delete_btn and len(st.session_state.chats) > 1:
+                    move_chat_to_trash(chat_name)
                     del st.session_state.chats[chat_name]
                     delete_chat_from_db(chat_name)
                     st.session_state.current_chat = list(st.session_state.chats.keys())[0]
@@ -364,6 +351,26 @@ with st.sidebar:
             st.session_state.global_memory = user_memory_input
             save_memory_to_db(user_memory_input)
             st.success("Saved!")
+
+        st.divider()
+        st.subheader("🗑️ Trash — Deleted Chats")
+
+        trash_chats = load_trash_chats()
+        if not trash_chats:
+            st.caption("No deleted chats yet.")
+        else:
+            for title in trash_chats:
+                st.write(f"**{title}**")
+                col1, col2 = st.columns(2)
+                with col1:
+                    if st.button(f"Restore {title}", key=f"restore_{title}"):
+                        restore_chat(title)
+                        st.rerun()
+                with col2:
+                    if st.button(f"Continue {title}", key=f"continue_{title}"):
+                        restore_chat(title)
+                        st.session_state.current_chat = title
+                        st.rerun()
 
     # --- THEMES TAB ---
     with tab_themes:
@@ -465,28 +472,15 @@ if user_prompt:
         bot_reply = f"IMAGE_URL:{image_url}"
 
     else:
-        live_info = ""
-        if needs_live_info(user_prompt):
-            live_info = get_live_info(user_prompt)
-
         system_memory_instruction = (
             "You are Krypton. You do not mention training data, training cutoffs, knowledge limits, or dates like '2023'. "
-            "You always answer using the latest information provided to you. "
-            "If the user asks about current events, you silently use the most recent context available. "
+            "You always answer using the information available in this conversation and any instructions provided. "
             "You never say you are outdated, limited, or trained only up to a certain year. "
             "You always respond confidently with the information you have. "
             f"Follow these rules: {st.session_state.global_memory}"
         )
 
-        api_messages = [{"role": "system", "content": system_memory_instruction}]
-
-        if live_info:
-            api_messages.append({
-                "role": "system",
-                "content": f"Here is some recent context that may be relevant:\n{live_info}"
-            })
-
-        api_messages += [
+        api_messages = [{"role": "system", "content": system_memory_instruction}] + [
             {"role": m["role"], "content": m["content"]} for m in active_messages
         ]
 

@@ -47,7 +47,10 @@ def load_chats():
     c.execute("SELECT title, messages FROM chats")
     rows = c.fetchall()
     conn.close()
-    return {title: json.loads(msgs) for title, msgs in rows} or {"New Chat": []}
+    chats = {title: json.loads(msgs) for title, msgs in rows}
+    if not chats:
+        chats = {"New Chat": []}
+    return chats
 
 def load_trash():
     conn = sqlite3.connect(DB_FILE)
@@ -109,6 +112,9 @@ if "current_chat" not in st.session_state or st.session_state.current_chat not i
 
 if "trash_current_chat" not in st.session_state:
     st.session_state.trash_current_chat = None
+
+if "mode" not in st.session_state:
+    st.session_state.mode = "normal"  # "normal" or "trash"
 
 if "global_memory" not in st.session_state:
     st.session_state.global_memory = load_memory_from_db()
@@ -244,6 +250,7 @@ with st.sidebar:
             new_id = f"New Chat {len(st.session_state.chats) + 1}"
             st.session_state.chats[new_id] = []
             st.session_state.current_chat = new_id
+            st.session_state.mode = "normal"
             save_chat(new_id, [])
             st.rerun()
 
@@ -253,6 +260,7 @@ with st.sidebar:
             with col1:
                 if st.button(name, key=f"chat_{name}", use_container_width=True):
                     st.session_state.current_chat = name
+                    st.session_state.mode = "normal"
                     st.rerun()
             with col2:
                 if st.button("✏️", key=f"rename_{name}"):
@@ -262,6 +270,7 @@ with st.sidebar:
                     del st.session_state.chats[name]
                     st.session_state.current_chat = list(st.session_state.chats.keys())[0]
                     st.session_state.trash_chats = load_trash()
+                    st.session_state.mode = "normal"
                     st.rerun()
 
         tip = get_next_tip()
@@ -307,59 +316,29 @@ with st.sidebar:
         st.session_state.trash_chats = load_trash()
         trash = st.session_state.trash_chats
 
-        if st.session_state.trash_current_chat is None:
-            if not trash:
-                st.caption("No deleted chats yet.")
-            else:
-                for title in trash.keys():
-                    st.write(f"**{title}**")
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        if st.button(f"Open {title}", key=f"open_trash_{title}"):
-                            st.session_state.trash_current_chat = title
-                            st.rerun()
-                    with col2:
-                        if st.button(f"Delete Permanently {title}", key=f"purge_{title}"):
-                            conn = sqlite3.connect(DB_FILE)
-                            c = conn.cursor()
-                            c.execute("DELETE FROM trash_chats WHERE title = ?", (title,))
-                            conn.commit()
-                            conn.close()
-                            st.session_state.trash_current_chat = None
-                            st.session_state.trash_chats = load_trash()
-                            st.rerun()
+        if not trash:
+            st.caption("No deleted chats yet.")
         else:
-            title = st.session_state.trash_current_chat
-            messages = trash.get(title, [])
-            st.write(f"### 🗑️ {title} (Trash Chat)")
-
-            for msg in messages:
-                with st.chat_message(msg["role"]):
-                    st.write(msg["content"])
-
-            trash_input = st.chat_input("Continue this deleted chat...")
-            if trash_input:
-                messages.append({"role": "user", "content": trash_input})
-                system_instruction = (
-                    "You are Krypton. You do not mention training data, training cutoffs, knowledge limits, "
-                    "or dates like '2023'. You never say you are outdated or limited. "
-                    "You respond confidently using the information in this conversation and the user's memory."
-                    f" Follow these rules: {st.session_state.global_memory}"
-                )
-                api_messages = [{"role": "system", "content": system_instruction}] + messages
-                resp = client.chat.completions.create(
-                    model="llama-3.1-8b-instant",
-                    messages=api_messages
-                )
-                bot_reply = resp.choices[0].message.content
-                messages.append({"role": "assistant", "content": bot_reply})
-                save_trash(title, messages)
-                st.session_state.trash_chats[title] = messages
-                st.rerun()
-
-            if st.button("Back to Trash List"):
-                st.session_state.trash_current_chat = None
-                st.rerun()
+            for title in trash.keys():
+                st.write(f"**{title}**")
+                col1, col2 = st.columns(2)
+                with col1:
+                    if st.button(f"Open {title}", key=f"open_trash_{title}"):
+                        st.session_state.mode = "trash"
+                        st.session_state.trash_current_chat = title
+                        st.rerun()
+                with col2:
+                    if st.button(f"Delete Permanently {title}", key=f"purge_{title}"):
+                        conn = sqlite3.connect(DB_FILE)
+                        c = conn.cursor()
+                        c.execute("DELETE FROM trash_chats WHERE title = ?", (title,))
+                        conn.commit()
+                        conn.close()
+                        st.session_state.trash_current_chat = None
+                        st.session_state.trash_chats = load_trash()
+                        if st.session_state.mode == "trash" and st.session_state.trash_current_chat == title:
+                            st.session_state.mode = "normal"
+                        st.rerun()
 
     # THEMES TAB
     with tab_themes:
@@ -373,17 +352,32 @@ with st.sidebar:
         st.session_state.theme_choice = selected
 
 # ---------- HEADER ----------
-col_h1, col_h2 = st.columns([4, 1])
+col_h1, col_h2 = st.columns([4, 2])
 with col_h1:
-    st.markdown("### 💬 Chat")
+    if st.session_state.mode == "normal":
+        st.markdown("### 💬 Chat")
+    else:
+        st.markdown(f"### 🗑️ Trash Chat — {st.session_state.trash_current_chat}")
 with col_h2:
     if st.button("Clear Screen", use_container_width=True):
-        st.session_state.chats[st.session_state.current_chat] = []
-        save_chat(st.session_state.current_chat, [])
+        if st.session_state.mode == "normal":
+            st.session_state.chats[st.session_state.current_chat] = []
+            save_chat(st.session_state.current_chat, [])
+        else:
+            st.session_state.trash_chats[st.session_state.trash_current_chat] = []
+            save_trash(st.session_state.trash_current_chat, [])
         st.rerun()
+    if st.session_state.mode == "trash":
+        if st.button("⬅ Back to Chats", use_container_width=True):
+            st.session_state.mode = "normal"
+            st.session_state.trash_current_chat = None
+            st.rerun()
 
 # ---------- MAIN CHAT DISPLAY ----------
-active_messages = st.session_state.chats[st.session_state.current_chat]
+if st.session_state.mode == "normal":
+    active_messages = st.session_state.chats[st.session_state.current_chat]
+else:
+    active_messages = st.session_state.trash_chats.get(st.session_state.trash_current_chat, [])
 
 for idx, msg in enumerate(active_messages):
     with st.chat_message(msg["role"]):
@@ -392,32 +386,50 @@ for idx, msg in enumerate(active_messages):
 
         col1, col2 = st.columns([1, 5])
         with col1:
-            if st.button("🔊", key=f"voice_{idx}"):
+            if st.button("🔊", key=f"voice_{st.session_state.mode}_{idx}"):
                 audio = get_voice_audio(content)
                 st.audio(audio, format="audio/mp3", autoplay=True)
         with col2:
             with st.expander("More", expanded=False):
                 if msg["role"] == "user":
-                    new_text = st.text_input("Edit message:", value=content, key=f"edit_{idx}")
-                    if st.button("Save & Resend", key=f"save_edit_{idx}"):
-                        st.session_state.chats[st.session_state.current_chat] = active_messages[:idx]
-                        st.session_state.chats[st.session_state.current_chat].append({"role": "user", "content": new_text})
-                        save_chat(st.session_state.current_chat, st.session_state.chats[st.session_state.current_chat])
+                    new_text = st.text_input("Edit message:", value=content, key=f"edit_{st.session_state.mode}_{idx}")
+                    if st.button("Save & Resend", key=f"save_edit_{st.session_state.mode}_{idx}"):
+                        active_messages = active_messages[:idx]
+                        active_messages.append({"role": "user", "content": new_text})
+                        if st.session_state.mode == "normal":
+                            st.session_state.chats[st.session_state.current_chat] = active_messages
+                            save_chat(st.session_state.current_chat, active_messages)
+                        else:
+                            st.session_state.trash_chats[st.session_state.trash_current_chat] = active_messages
+                            save_trash(st.session_state.trash_current_chat, active_messages)
                         st.rerun()
-                if st.button("⏪ Rewind to here", key=f"rewind_{idx}"):
-                    st.session_state.chats[st.session_state.current_chat] = active_messages[:idx + 1]
-                    save_chat(st.session_state.current_chat, st.session_state.chats[st.session_state.current_chat])
+                if st.button("⏪ Rewind to here", key=f"rewind_{st.session_state.mode}_{idx}"):
+                    active_messages = active_messages[:idx + 1]
+                    if st.session_state.mode == "normal":
+                        st.session_state.chats[st.session_state.current_chat] = active_messages
+                        save_chat(st.session_state.current_chat, active_messages)
+                    else:
+                        st.session_state.trash_chats[st.session_state.trash_current_chat] = active_messages
+                        save_trash(st.session_state.trash_current_chat, active_messages)
                     st.rerun()
-                if st.button("Delete message", key=f"del_msg_{idx}"):
+                if st.button("Delete message", key=f"del_msg_{st.session_state.mode}_{idx}"):
                     active_messages.pop(idx)
-                    save_chat(st.session_state.current_chat, active_messages)
+                    if st.session_state.mode == "normal":
+                        st.session_state.chats[st.session_state.current_chat] = active_messages
+                        save_chat(st.session_state.current_chat, active_messages)
+                    else:
+                        st.session_state.trash_chats[st.session_state.trash_current_chat] = active_messages
+                        save_trash(st.session_state.trash_current_chat, active_messages)
                     st.rerun()
 
 # ---------- INPUT ----------
-user_prompt = st.chat_input("Ask anything...")
+if st.session_state.mode == "normal":
+    user_prompt = st.chat_input("Ask anything...")
+else:
+    user_prompt = st.chat_input("Continue deleted chat...")
 
 if user_prompt:
-    if len(active_messages) == 0:
+    if st.session_state.mode == "normal" and len(active_messages) == 0:
         auto_title = generate_chat_title(user_prompt)
         old = st.session_state.current_chat
         rename_chat(old, auto_title)
@@ -451,5 +463,12 @@ if user_prompt:
         bot_reply = resp.choices[0].message.content
 
     active_messages.append({"role": "assistant", "content": bot_reply})
-    save_chat(st.session_state.current_chat, active_messages)
+
+    if st.session_state.mode == "normal":
+        st.session_state.chats[st.session_state.current_chat] = active_messages
+        save_chat(st.session_state.current_chat, active_messages)
+    else:
+        st.session_state.trash_chats[st.session_state.trash_current_chat] = active_messages
+        save_trash(st.session_state.trash_current_chat, active_messages)
+
     st.rerun()

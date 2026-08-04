@@ -252,6 +252,30 @@ def rename_chat(old_title, new_title):
         st.session_state.current_chat = new_title
     return True
 
+def get_ai_reply(prompt, messages_history):
+    image_keywords = ["draw", "image", "picture", "photo", "illustration", "paint", "sketch", "render"]
+    video_keywords = ["video", "clip", "movie", "animation"]
+    p_lower = prompt.lower()
+
+    if any(k in p_lower for k in video_keywords) and any(a in p_lower for a in ["make", "create", "generate", "show", "give"]):
+        encoded = urllib.parse.quote(prompt)
+        return f"Here is your video:\nhttps://image.pollinations.ai/prompt/{encoded}?model=video"
+    elif any(k in p_lower for k in image_keywords):
+        encoded = urllib.parse.quote(prompt)
+        return f"https://image.pollinations.ai/prompt/{encoded}"
+    else:
+        system_instruction = (
+            "You are Krypton. You do not mention training data, training cutoffs, knowledge limits, or dates like '2023'. "
+            "You never say you are outdated or limited. You respond confidently using the information in this conversation "
+            f"and the user's memory. Follow these rules: {st.session_state.global_memory}"
+        )
+        api_messages = [{"role": "system", "content": system_instruction}] + messages_history
+        resp = client.chat.completions.create(
+            model="llama-3.1-8b-instant",
+            messages=api_messages
+        )
+        return resp.choices[0].message.content
+
 # ---------- SIDEBAR ----------
 with st.sidebar:
     tab_chats, tab_memory, tab_themes = st.tabs(["💬 Chats", "🧠 Memory", "🎨 Themes"])
@@ -443,6 +467,22 @@ for idx, msg in enumerate(active_messages):
                         save_trash(st.session_state.trash_current_chat, active_messages)
                     st.rerun()
 
+# REGENERATE BUTTON (Visible if the last message is from the assistant)
+if active_messages and active_messages[-1]["role"] == "assistant":
+    if st.button("🔄 Regenerate Response"):
+        active_messages.pop()  # Remove the last AI response
+        last_user_prompt = active_messages[-1]["content"] if active_messages else ""
+        if last_user_prompt:
+            new_reply = get_ai_reply(last_user_prompt, active_messages)
+            active_messages.append({"role": "assistant", "content": new_reply})
+            if st.session_state.mode == "normal":
+                st.session_state.chats[st.session_state.current_chat] = active_messages
+                save_chat(st.session_state.current_chat, active_messages)
+            else:
+                st.session_state.trash_chats[st.session_state.trash_current_chat] = active_messages
+                save_trash(st.session_state.trash_current_chat, active_messages)
+            st.rerun()
+
 # ---------- INPUT ----------
 if st.session_state.mode == "normal":
     user_prompt = st.chat_input("Ask anything...")
@@ -457,32 +497,7 @@ if user_prompt:
         active_messages = st.session_state.chats[st.session_state.current_chat]
 
     active_messages.append({"role": "user", "content": user_prompt})
-
-    image_keywords = ["draw", "image", "picture", "photo", "illustration", "paint", "sketch", "render"]
-    video_keywords = ["video", "clip", "movie", "animation"]
-    p_lower = user_prompt.lower()
-
-    if any(k in p_lower for k in video_keywords) and any(a in p_lower for a in ["make", "create", "generate", "show", "give"]):
-        encoded = urllib.parse.quote(user_prompt)
-        video_url = f"https://image.pollinations.ai/prompt/{encoded}?model=video"
-        bot_reply = f"Here is your video:\n{video_url}"
-    elif any(k in p_lower for k in image_keywords):
-        encoded = urllib.parse.quote(user_prompt)
-        image_url = f"https://image.pollinations.ai/prompt/{encoded}"
-        bot_reply = f"{image_url}"
-    else:
-        system_instruction = (
-            "You are Krypton. You do not mention training data, training cutoffs, knowledge limits, or dates like '2023'. "
-            "You never say you are outdated or limited. You respond confidently using the information in this conversation "
-            f"and the user's memory. Follow these rules: {st.session_state.global_memory}"
-        )
-        api_messages = [{"role": "system", "content": system_instruction}] + active_messages
-        resp = client.chat.completions.create(
-            model="llama-3.1-8b-instant",
-            messages=api_messages
-        )
-        bot_reply = resp.choices[0].message.content
-
+    bot_reply = get_ai_reply(user_prompt, active_messages)
     active_messages.append({"role": "assistant", "content": bot_reply})
 
     if st.session_state.mode == "normal":

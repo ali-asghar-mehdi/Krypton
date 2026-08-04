@@ -1,10 +1,10 @@
+import json
+import sqlite3
+import io
+import urllib.parse
 import streamlit as st
 from groq import Groq
 from gtts import gTTS
-import io
-import sqlite3
-import json
-import urllib.parse
 
 st.set_page_config(page_title="AI Workspace", layout="wide")
 
@@ -113,7 +113,7 @@ if "trash_current_chat" not in st.session_state:
     st.session_state.trash_current_chat = None
 
 if "mode" not in st.session_state:
-    st.session_state.mode = "normal"  # "normal" or "trash"
+    st.session_state.mode = "normal"
 
 if "global_memory" not in st.session_state:
     st.session_state.global_memory = load_memory_from_db()
@@ -214,7 +214,7 @@ def get_voice_audio(text):
 def generate_chat_title(first_prompt):
     try:
         resp = client.chat.completions.create(
-            model="llama-3.1-8b-instant",
+            model="llama-3.3-70b-versatile",
             messages=[
                 {"role": "system", "content": "Generate a short title (2-4 words). No punctuation."},
                 {"role": "user", "content": first_prompt}
@@ -250,13 +250,13 @@ def generate_ai_stream(prompt, messages_history):
         yield f"https://image.pollinations.ai/prompt/{encoded}"
     else:
         system_instruction = (
-            "You are Krypton. You do not mention training data, training cutoffs, knowledge limits, or dates like '2023'. "
-            "You never say you are outdated or limited. You respond confidently using the information in this conversation "
-            f"and the user's memory. Follow these rules: {st.session_state.global_memory}"
+            "You are Krypton. You do not mention training cutoffs or knowledge limits. "
+            "You respond accurately using current knowledge and the user's memory. "
+            f"Follow these rules: {st.session_state.global_memory}"
         )
         api_messages = [{"role": "system", "content": system_instruction}] + messages_history
         stream = client.chat.completions.create(
-            model="llama-3.1-8b-instant",
+            model="llama-3.3-70b-versatile",
             messages=api_messages,
             stream=True
         )

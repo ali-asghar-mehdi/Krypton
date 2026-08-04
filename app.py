@@ -214,7 +214,7 @@ def get_voice_audio(text):
 def generate_chat_title(first_prompt):
     try:
         resp = client.chat.completions.create(
-            model="llama3-8b-8192",
+            model="llama-3.1-8b-instant",
             messages=[
                 {"role": "system", "content": "Generate a short title (2-4 words). No punctuation."},
                 {"role": "user", "content": first_prompt}
@@ -254,10 +254,9 @@ def generate_ai_stream(prompt, messages_history):
             "You never say you are outdated or limited. You respond confidently using the information in this conversation "
             f"and the user's memory. Follow these rules: {st.session_state.global_memory}"
         )
-        # Keeps full history without trimming
         api_messages = [{"role": "system", "content": system_instruction}] + messages_history
         stream = client.chat.completions.create(
-            model="llama3-8b-8192",
+            model="llama-3.1-8b-instant",
             messages=api_messages,
             stream=True
         )

@@ -12,102 +12,83 @@ DB_FILE = "chats.db"
 
 # ---------- DB SETUP ----------
 def init_db():
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS chats (
-            title TEXT PRIMARY KEY,
-            messages TEXT
-        )
-    """)
-
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS trash_chats (
-            title TEXT PRIMARY KEY,
-            messages TEXT
-        )
-    """)
-
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS global_memory (
-            id INTEGER PRIMARY KEY,
-            instructions TEXT
-        )
-    """)
-
-    conn.commit()
-    conn.close()
+    with sqlite3.connect(DB_FILE) as conn:
+        c = conn.cursor()
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS chats (
+                title TEXT PRIMARY KEY,
+                messages TEXT
+            )
+        """)
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS trash_chats (
+                title TEXT PRIMARY KEY,
+                messages TEXT
+            )
+        """)
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS global_memory (
+                id INTEGER PRIMARY KEY,
+                instructions TEXT
+            )
+        """)
 
 init_db()
 
 def load_chats():
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    c.execute("SELECT title, messages FROM chats")
-    rows = c.fetchall()
-    conn.close()
+    with sqlite3.connect(DB_FILE) as conn:
+        c = conn.cursor()
+        c.execute("SELECT title, messages FROM chats")
+        rows = c.fetchall()
     chats = {title: json.loads(msgs) for title, msgs in rows}
     if not chats:
         chats = {"New Chat": []}
     return chats
 
 def load_trash():
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    c.execute("SELECT title, messages FROM trash_chats")
-    rows = c.fetchall()
-    conn.close()
+    with sqlite3.connect(DB_FILE) as conn:
+        c = conn.cursor()
+        c.execute("SELECT title, messages FROM trash_chats")
+        rows = c.fetchall()
     return {title: json.loads(msgs) for title, msgs in rows}
 
 def save_chat(title, messages):
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    c.execute("INSERT OR REPLACE INTO chats (title, messages) VALUES (?, ?)", (title, json.dumps(messages)))
-    conn.commit()
-    conn.close()
+    with sqlite3.connect(DB_FILE) as conn:
+        c = conn.cursor()
+        c.execute("INSERT OR REPLACE INTO chats (title, messages) VALUES (?, ?)", (title, json.dumps(messages)))
 
 def save_trash(title, messages):
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    c.execute("INSERT OR REPLACE INTO trash_chats (title, messages) VALUES (?, ?)", (title, json.dumps(messages)))
-    conn.commit()
-    conn.close()
+    with sqlite3.connect(DB_FILE) as conn:
+        c = conn.cursor()
+        c.execute("INSERT OR REPLACE INTO trash_chats (title, messages) VALUES (?, ?)", (title, json.dumps(messages)))
 
 def move_to_trash(title, messages):
     save_trash(title, messages)
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    c.execute("DELETE FROM chats WHERE title = ?", (title,))
-    conn.commit()
-    conn.close()
+    with sqlite3.connect(DB_FILE) as conn:
+        c = conn.cursor()
+        c.execute("DELETE FROM chats WHERE title = ?", (title,))
 
 def restore_chat(title):
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    c.execute("SELECT messages FROM trash_chats WHERE title = ?", (title,))
-    row = c.fetchone()
-    if row:
-        messages = json.loads(row[0])
-        save_chat(title, messages)
-        c.execute("DELETE FROM trash_chats WHERE title = ?", (title,))
-        conn.commit()
-    conn.close()
+    with sqlite3.connect(DB_FILE) as conn:
+        c = conn.cursor()
+        c.execute("SELECT messages FROM trash_chats WHERE title = ?", (title,))
+        row = c.fetchone()
+        if row:
+            messages = json.loads(row[0])
+            save_chat(title, messages)
+            c.execute("DELETE FROM trash_chats WHERE title = ?", (title,))
 
 def load_memory_from_db():
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    c.execute("SELECT instructions FROM global_memory WHERE id = 1")
-    row = c.fetchone()
-    conn.close()
+    with sqlite3.connect(DB_FILE) as conn:
+        c = conn.cursor()
+        c.execute("SELECT instructions FROM global_memory WHERE id = 1")
+        row = c.fetchone()
     return row[0] if row else ""
 
 def save_memory_to_db(text):
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    c.execute("INSERT OR REPLACE INTO global_memory (id, instructions) VALUES (1, ?)", (text,))
-    conn.commit()
-    conn.close()
+    with sqlite3.connect(DB_FILE) as conn:
+        c = conn.cursor()
+        c.execute("INSERT OR REPLACE INTO global_memory (id, instructions) VALUES (1, ?)", (text,))
 
 # ---------- CLIENT ----------
 client = Groq(api_key=st.secrets["GROQ_API_KEY"])
@@ -243,26 +224,24 @@ def rename_chat(old_title, new_title):
         return False
     st.session_state.chats[new_title] = st.session_state.chats.pop(old_title)
     save_chat(new_title, st.session_state.chats[new_title])
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    c.execute("DELETE FROM chats WHERE title = ?", (old_title,))
-    conn.commit()
-    conn.close()
+    with sqlite3.connect(DB_FILE) as conn:
+        c = conn.cursor()
+        c.execute("DELETE FROM chats WHERE title = ?", (old_title,))
     if st.session_state.current_chat == old_title:
         st.session_state.current_chat = new_title
     return True
 
-def get_ai_reply(prompt, messages_history):
+def generate_ai_stream(prompt, messages_history):
     image_keywords = ["draw", "image", "picture", "photo", "illustration", "paint", "sketch", "render"]
     video_keywords = ["video", "clip", "movie", "animation"]
     p_lower = prompt.lower()
 
     if any(k in p_lower for k in video_keywords) and any(a in p_lower for a in ["make", "create", "generate", "show", "give"]):
         encoded = urllib.parse.quote(prompt)
-        return f"Here is your video:\nhttps://image.pollinations.ai/prompt/{encoded}?model=video"
+        yield f"Here is your video:\nhttps://image.pollinations.ai/prompt/{encoded}?model=video"
     elif any(k in p_lower for k in image_keywords):
         encoded = urllib.parse.quote(prompt)
-        return f"https://image.pollinations.ai/prompt/{encoded}"
+        yield f"https://image.pollinations.ai/prompt/{encoded}"
     else:
         system_instruction = (
             "You are Krypton. You do not mention training data, training cutoffs, knowledge limits, or dates like '2023'. "
@@ -270,11 +249,14 @@ def get_ai_reply(prompt, messages_history):
             f"and the user's memory. Follow these rules: {st.session_state.global_memory}"
         )
         api_messages = [{"role": "system", "content": system_instruction}] + messages_history
-        resp = client.chat.completions.create(
+        stream = client.chat.completions.create(
             model="llama-3.1-8b-instant",
-            messages=api_messages
+            messages=api_messages,
+            stream=True
         )
-        return resp.choices[0].message.content
+        for chunk in stream:
+            if chunk.choices[0].delta.content:
+                yield chunk.choices[0].delta.content
 
 # ---------- SIDEBAR ----------
 with st.sidebar:
@@ -374,11 +356,9 @@ with st.sidebar:
                         st.rerun()
                 with col3:
                     if st.button(f"Delete Permanently {title}", key=f"purge_{title}"):
-                        conn = sqlite3.connect(DB_FILE)
-                        c = conn.cursor()
-                        c.execute("DELETE FROM trash_chats WHERE title = ?", (title,))
-                        conn.commit()
-                        conn.close()
+                        with sqlite3.connect(DB_FILE) as conn:
+                            c = conn.cursor()
+                            c.execute("DELETE FROM trash_chats WHERE title = ?", (title,))
                         st.session_state.trash_chats = load_trash()
                         if st.session_state.mode == "trash" and st.session_state.trash_current_chat == title:
                             st.session_state.mode = "normal"
@@ -467,14 +447,16 @@ for idx, msg in enumerate(active_messages):
                         save_trash(st.session_state.trash_current_chat, active_messages)
                     st.rerun()
 
-# REGENERATE BUTTON (Works in both normal and trash mode if last message is from assistant)
+# REGENERATE BUTTON WITH FAST STREAMING
 if active_messages and active_messages[-1]["role"] == "assistant":
     if st.button("🔄 Regenerate Response"):
-        active_messages.pop()  # Remove the last AI response
+        active_messages.pop()  # Remove last response
         last_user_prompt = active_messages[-1]["content"] if active_messages else ""
         if last_user_prompt:
-            new_reply = get_ai_reply(last_user_prompt, active_messages)
-            active_messages.append({"role": "assistant", "content": new_reply})
+            with st.chat_message("assistant"):
+                stream = generate_ai_stream(last_user_prompt, active_messages)
+                full_response = st.write_stream(stream)
+            active_messages.append({"role": "assistant", "content": full_response})
             if st.session_state.mode == "normal":
                 st.session_state.chats[st.session_state.current_chat] = active_messages
                 save_chat(st.session_state.current_chat, active_messages)
@@ -497,8 +479,14 @@ if user_prompt:
         active_messages = st.session_state.chats[st.session_state.current_chat]
 
     active_messages.append({"role": "user", "content": user_prompt})
-    bot_reply = get_ai_reply(user_prompt, active_messages)
-    active_messages.append({"role": "assistant", "content": bot_reply})
+    with st.chat_message("user"):
+        st.write(user_prompt)
+
+    with st.chat_message("assistant"):
+        stream = generate_ai_stream(user_prompt, active_messages)
+        full_response = st.write_stream(stream)
+
+    active_messages.append({"role": "assistant", "content": full_response})
 
     if st.session_state.mode == "normal":
         st.session_state.chats[st.session_state.current_chat] = active_messages
